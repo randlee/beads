@@ -218,7 +218,7 @@ func TestPrepareCLIRouteForGitProtocolColdStartWindow(t *testing.T) {
 	t.Run("persisted_git_protocol_remote_recovers_cli_route", func(t *testing.T) {
 		store := newColdStore(t)
 		const url = "git+ssh://git@example.com/org/repo.git"
-		if err := doltutil.AddCLIRemote(store.CLIDir(), "origin", url); err != nil {
+		if err := doltutil.AddCLIRemote(store.CLIDir(), "origin", url, ""); err != nil {
 			t.Fatalf("AddCLIRemote: %v", err)
 		}
 
@@ -233,7 +233,7 @@ func TestPrepareCLIRouteForGitProtocolColdStartWindow(t *testing.T) {
 
 	t.Run("persisted_non_git_remote_fails_with_cold_start_hint", func(t *testing.T) {
 		store := newColdStore(t)
-		if err := doltutil.AddCLIRemote(store.CLIDir(), "origin", "https://doltremoteapi.dolthub.com/org/repo"); err != nil {
+		if err := doltutil.AddCLIRemote(store.CLIDir(), "origin", "https://doltremoteapi.dolthub.com/org/repo", ""); err != nil {
 			t.Fatalf("AddCLIRemote: %v", err)
 		}
 

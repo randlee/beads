@@ -3846,7 +3846,7 @@ func (s *DoltStore) ensureMatchingCLIRemote(remote, expectedURL string) error {
 	if cliDir == "" {
 		return fmt.Errorf("remote %q (%s) requires CLI routing but no CLI directory is configured", remote, expectedURL)
 	}
-	if err := doltutil.EnsureCLIRemote(cliDir, remote, expectedURL); err != nil {
+	if err := doltutil.EnsureCLIRemote(cliDir, remote, expectedURL, ""); err != nil {
 		return fmt.Errorf("materialize CLI remote %q (%s) in %s: %w", remote, expectedURL, cliDir, err)
 	}
 	if !s.hasMatchingCLIRemote(remote, expectedURL) {
@@ -5323,7 +5323,14 @@ func (s *DoltStore) HasRemote(ctx context.Context, name string) (bool, error) {
 }
 
 // AddRemote adds a Dolt remote
-func (s *DoltStore) AddRemote(ctx context.Context, name, url string) error {
+func (s *DoltStore) AddRemote(ctx context.Context, name, url, gitRef string) error {
+	if gitRef != "" {
+		_, err := s.db.ExecContext(ctx, "CALL DOLT_REMOTE('add', '--ref', ?, ?, ?)", gitRef, name, url)
+		if err != nil {
+			return fmt.Errorf("failed to add remote %s: %w", name, err)
+		}
+		return nil
+	}
 	_, err := s.db.ExecContext(ctx, "CALL DOLT_REMOTE('add', ?, ?)", name, url)
 	if err != nil {
 		return fmt.Errorf("failed to add remote %s: %w", name, err)
