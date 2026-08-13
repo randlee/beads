@@ -470,7 +470,7 @@ func adoptGitOriginRemoteForPush(ctx context.Context, st storage.DoltStorage, po
 		return false, fmt.Errorf("no active beads workspace")
 	}
 
-	if err := st.AddRemote(ctx, "origin", remoteURL); err != nil {
+	if err := st.AddRemote(ctx, "origin", remoteURL, ""); err != nil {
 		return false, err
 	}
 
@@ -1501,7 +1501,7 @@ func purgeDroppedDatabases(ctx context.Context, conn versioncontrolops.DBConn) e
 
 type doltRemoteAddStore interface {
 	ListRemotes(ctx context.Context) ([]storage.RemoteInfo, error)
-	AddRemote(ctx context.Context, name, url string) error
+	AddRemote(ctx context.Context, name, url, gitRef string) error
 	RemoveRemote(ctx context.Context, name string) error
 }
 
@@ -1536,7 +1536,7 @@ func findDoltRemoteURL(remotes []storage.RemoteInfo, name string) string {
 	return ""
 }
 
-func ensureDoltRemote(ctx context.Context, st doltRemoteAddStore, name, url string, confirm doltRemoteOverwriteConfirmer) (doltRemoteAddResult, error) {
+func ensureDoltRemote(ctx context.Context, st doltRemoteAddStore, name, url, gitRef string, confirm doltRemoteOverwriteConfirmer) (doltRemoteAddResult, error) {
 	remotes, err := st.ListRemotes(ctx)
 	if err != nil {
 		return doltRemoteAddResult{}, fmt.Errorf("list existing remotes: %w", err)
@@ -1555,7 +1555,7 @@ func ensureDoltRemote(ctx context.Context, st doltRemoteAddStore, name, url stri
 		existingFromDiskOnly = existingURL != ""
 	}
 	if existingURL == "" {
-		if err := st.AddRemote(ctx, name, url); err != nil {
+		if err := st.AddRemote(ctx, name, url, gitRef, ""); err != nil {
 			return doltRemoteAddResult{}, fmt.Errorf("add remote %s: %w", name, err)
 		}
 		return doltRemoteAddResult{}, nil
@@ -1576,7 +1576,7 @@ func ensureDoltRemote(ctx context.Context, st doltRemoteAddStore, name, url stri
 			return doltRemoteAddResult{}, fmt.Errorf("remove existing remote %s: %w", name, err)
 		}
 	}
-	if err := st.AddRemote(ctx, name, url); err != nil {
+	if err := st.AddRemote(ctx, name, url, gitRef, ""); err != nil {
 		return doltRemoteAddResult{}, fmt.Errorf("add remote %s: %w", name, err)
 	}
 	return doltRemoteAddResult{}, nil
@@ -1607,6 +1607,7 @@ var doltRemoteAddCmd = &cobra.Command{
 			return SilentExit()
 		}
 		allowGitOrigin, _ := cmd.Flags().GetBool("allow-git-origin")
+		gitRef, _ := cmd.Flags().GetString("ref")
 		if doltRemoteMatchesGitOrigin(args[1]) {
 			if !allowGitOrigin {
 				fmt.Fprintf(os.Stderr, "Error: refusing to add %q as a Dolt remote — this URL matches the git origin.\n", args[1])
@@ -1623,7 +1624,7 @@ var doltRemoteAddCmd = &cobra.Command{
 		}
 		name, url := args[0], args[1]
 
-		result, err := ensureDoltRemote(ctx, st, name, url, confirmDoltRemoteOverwrite)
+		result, err := ensureDoltRemote(ctx, st, name, url, gitRef, confirmDoltRemoteOverwrite)
 		if err != nil {
 			if jsonOutput {
 				_ = outputJSONError(err, "remote_add_failed")
@@ -1805,6 +1806,7 @@ func init() {
 	doltCleanDatabasesCmd.Flags().Bool("dry-run", false, "Show what would be dropped without dropping")
 	doltCleanDatabasesCmd.Flags().Bool("purge-dropped", false, "After dropping, also run CALL DOLT_PURGE_DROPPED_DATABASES() — server-global and irreversible, see --help")
 	doltRemoteAddCmd.Flags().Bool("allow-git-origin", false, "Allow adding a Dolt remote whose URL matches the git origin (proceed with a warning instead of aborting)")
+doltRemoteAddCmd.Flags().String("ref", "", "Git ref for multi-database repos (e.g. refs/dolt/skillrx). Passes through to 'dolt remote add --ref'")
 	doltRemoteResetDataCmd.Flags().BoolVarP(&doltRemoteResetDataYes, "yes", "y", false, "Skip the confirmation prompt (required in non-interactive use)")
 	doltRemoteCmd.AddCommand(doltRemoteAddCmd)
 	doltRemoteCmd.AddCommand(doltRemoteListCmd)

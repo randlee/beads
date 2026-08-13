@@ -185,8 +185,12 @@ func (s *EmbeddedDoltStore) CommitMergeResolution(ctx context.Context, message s
 	return err
 }
 
-func (s *EmbeddedDoltStore) AddRemote(ctx context.Context, name, url string) error {
+func (s *EmbeddedDoltStore) AddRemote(ctx context.Context, name, url, gitRef string) error {
 	return s.withMutatingDBConn(ctx, func(db versioncontrolops.DBConn) error {
+		if gitRef != "" {
+			_, err := db.ExecContext(ctx, "CALL DOLT_REMOTE('add', '--ref', ?, ?, ?)", gitRef, name, url)
+			return err
+		}
 		_, err := db.ExecContext(ctx, "CALL DOLT_REMOTE('add', ?, ?)", name, url)
 		return err
 	})

@@ -3062,7 +3062,7 @@ func configureInitDoltRemote(ctx context.Context, store storage.DoltStorage, syn
 	if hasRemote {
 		return
 	}
-	if err := store.AddRemote(ctx, "origin", syncURL); err != nil {
+	if err := store.AddRemote(ctx, "origin", syncURL, ""); err != nil {
 		fmt.Fprintf(os.Stderr, "Warning: failed to add remote 'origin': %v\n", err)
 		return
 	}
