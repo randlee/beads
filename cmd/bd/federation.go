@@ -415,7 +415,7 @@ func runFederationAddPeer(cmd *cobra.Command, args []string) error {
 			return HandleErrorRespectJSON("failed to add peer: %v", err)
 		}
 	} else {
-		if err := store.AddRemote(ctx, name, url); err != nil {
+		if err := store.AddRemote(ctx, name, url, ""); err != nil {
 			return HandleErrorRespectJSON("failed to add peer: %v", err)
 		}
 	}

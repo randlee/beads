@@ -154,14 +154,21 @@ func RemoteURLsMatch(got, want string) bool {
 // AddCLIRemote adds a remote at the filesystem level via dolt CLI.
 // Remote mutation should normally go through SQL; this is reserved for the
 // local CLI mirror required by subprocess push/pull/fetch routing.
-func AddCLIRemote(dbPath, name, url string) error {
+// If gitRef is non-empty, it is passed as --ref to dolt remote add,
+// enabling multi-database repos (e.g. refs/dolt/skillrx).
+func AddCLIRemote(dbPath, name, url, gitRef string) error {
 	if err := remotecache.ValidateRemoteName(name); err != nil {
 		return fmt.Errorf("invalid remote name: %w", err)
 	}
 	if err := remotecache.ValidateRemoteURL(url); err != nil {
 		return fmt.Errorf("invalid remote URL: %w", err)
 	}
-	cmd := exec.Command("dolt", "remote", "add", name, url) // #nosec G204 -- validated argv
+	args := []string{"remote", "add"}
+	if gitRef != "" {
+		args = append(args, "--ref", gitRef)
+	}
+	args = append(args, name, url)
+	cmd := exec.Command("dolt", args...) // #nosec G204 -- validated argv
 	cmd.Dir = dbPath
 	out, err := cmd.CombinedOutput()
 	if err != nil {
@@ -202,7 +209,7 @@ func FindCLIRemote(dbPath, name string) string {
 // EnsureCLIRemote makes the local CLI remote match the SQL-visible remote URL.
 // It is intentionally idempotent and only mutates the CLI surface when the
 // remote is absent or points somewhere else.
-func EnsureCLIRemote(dbPath, name, url string) error {
+func EnsureCLIRemote(dbPath, name, url, gitRef string) error {
 	if err := remotecache.ValidateRemoteName(name); err != nil {
 		return fmt.Errorf("invalid remote name: %w", err)
 	}
@@ -223,11 +230,11 @@ func EnsureCLIRemote(dbPath, name, url string) error {
 			return err
 		}
 	}
-	if err := AddCLIRemote(dbPath, name, url); err != nil {
+	if err := AddCLIRemote(dbPath, name, url, gitRef); err != nil {
 		if current == "" {
 			return err
 		}
-		if restoreErr := AddCLIRemote(dbPath, name, current); restoreErr != nil {
+		if restoreErr := AddCLIRemote(dbPath, name, current, ""); restoreErr != nil {
 			return fmt.Errorf("add replacement CLI remote failed: %w; additionally failed to restore previous URL %q: %v", err, current, restoreErr)
 		}
 		return fmt.Errorf("add replacement CLI remote failed; previous URL %q restored: %w", current, err)

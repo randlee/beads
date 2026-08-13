@@ -332,7 +332,7 @@ func applyRemote(drifted bool, dryRun bool) ApplyResult {
 	}
 
 	if currentURL == "" {
-		if err := st.AddRemote(ctx, "origin", federationRemote); err != nil {
+		if err := st.AddRemote(ctx, "origin", federationRemote, ""); err != nil {
 			return ApplyResult{
 				Check:   "remote",
 				Action:  "add_remote",
@@ -369,8 +369,8 @@ func applyRemote(drifted bool, dryRun bool) ApplyResult {
 		}
 	}
 
-	if err := st.AddRemote(ctx, "origin", federationRemote); err != nil {
-		_ = st.AddRemote(ctx, "origin", oldURL)
+	if err := st.AddRemote(ctx, "origin", federationRemote, ""); err != nil {
+		_ = st.AddRemote(ctx, "origin", oldURL, "")
 		return ApplyResult{
 			Check:   "remote",
 			Action:  "update_remote",

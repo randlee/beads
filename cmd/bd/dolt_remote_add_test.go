@@ -20,7 +20,7 @@ func (f *fakeDoltRemoteAddStore) ListRemotes(ctx context.Context) ([]storage.Rem
 	return append([]storage.RemoteInfo(nil), f.remotes...), nil
 }
 
-func (f *fakeDoltRemoteAddStore) AddRemote(ctx context.Context, name, url string) error {
+func (f *fakeDoltRemoteAddStore) AddRemote(ctx context.Context, name, url, gitRef string) error {
 	f.calls = append(f.calls, "add "+name+" "+url)
 	f.remotes = append(f.remotes, storage.RemoteInfo{Name: name, URL: url})
 	return nil
