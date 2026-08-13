@@ -1241,7 +1241,7 @@ func (f *fakeAdoptingDoltStore) ListRemotes(ctx context.Context) ([]storage.Remo
 	return f.fakeProbingDoltStore.ListRemotes(ctx)
 }
 
-func (f *fakeAdoptingDoltStore) AddRemote(_ context.Context, name, url string) error {
+func (f *fakeAdoptingDoltStore) AddRemote(_ context.Context, name, url, gitRef string) error {
 	f.addRemoteCalls++
 	return fmt.Errorf("fakeAdoptingDoltStore: AddRemote(%q, %q) must not be called", name, url)
 }

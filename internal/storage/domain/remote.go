@@ -40,7 +40,7 @@ func (u *doltRemoteUseCaseImpl) CreateRemote(ctx context.Context, name, url stri
 	if url == "" {
 		return fmt.Errorf("CreateRemote: url must not be empty")
 	}
-	if err := u.remoteRepo.AddRemote(ctx, name, url); err != nil {
+	if err := u.remoteRepo.AddRemote(ctx, name, url, ""); err != nil {
 		return fmt.Errorf("CreateRemote %s: %w", name, err)
 	}
 	return nil
@@ -68,9 +68,9 @@ func (u *doltRemoteUseCaseImpl) UpdateRemote(ctx context.Context, name, url stri
 	if err := u.remoteRepo.RemoveRemote(ctx, name); err != nil {
 		return fmt.Errorf("UpdateRemote %s: remove: %w", name, err)
 	}
-	if err := u.remoteRepo.AddRemote(ctx, name, url); err != nil {
+	if err := u.remoteRepo.AddRemote(ctx, name, url, ""); err != nil {
 		if oldURL != "" {
-			if restoreErr := u.remoteRepo.AddRemote(ctx, name, oldURL); restoreErr != nil {
+			if restoreErr := u.remoteRepo.AddRemote(ctx, name, oldURL, ""); restoreErr != nil {
 				return fmt.Errorf("UpdateRemote %s: add: %w (restoring previous URL %s also failed: %v)", name, err, oldURL, restoreErr)
 			}
 			return fmt.Errorf("UpdateRemote %s: add: %w (previous URL %s restored)", name, err, oldURL)
