@@ -76,9 +76,16 @@ func gatherListInput(cmd *cobra.Command) (listInput, error) {
 	in.TitleSearch, _ = cmd.Flags().GetString("title")
 	in.SpecPrefix, _ = cmd.Flags().GetString("spec")
 	if cmd.Flags().Changed("prefix") {
-		in.Prefix, _ = cmd.Flags().GetString("prefix")
+		p, _ := cmd.Flags().GetString("prefix")
+		in.Prefix = normalizePrefixFilter(p)
 	} else if !in.AllFlag {
 		in.Prefix = config.GetString("list.prefix")
+		if in.Prefix == "" && store != nil {
+			if sp, err := store.GetConfig(rootCtx, "issue_prefix"); err == nil {
+				in.Prefix = sp
+			}
+		}
+		in.Prefix = normalizePrefixFilter(in.Prefix)
 	}
 	in.IDFilter, _ = cmd.Flags().GetString("id")
 	in.longFormat, _ = cmd.Flags().GetBool("long")

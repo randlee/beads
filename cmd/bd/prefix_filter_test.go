@@ -1,6 +1,8 @@
 package main
 
 import (
+	"context"
+	"path/filepath"
 	"testing"
 
 	"github.com/steveyegge/beads/internal/config"
@@ -82,6 +84,74 @@ func TestListPrefixLegacyNoFilter(t *testing.T) {
 	}
 }
 
+// prefixStoreFixture installs a store with a known issue_prefix as the
+// package-global store (the source the fallback reads), and restores the
+// originals after the test.
+func prefixStoreFixture(t *testing.T, prefix string) {
+	t.Helper()
+	originalStore, originalRootCtx := store, rootCtx
+	t.Cleanup(func() { store, rootCtx = originalStore, originalRootCtx })
+
+	rootCtx = context.Background()
+	tmpDir := t.TempDir()
+	testStore := newTestStoreWithPrefix(t, filepath.Join(tmpDir, "test.db"), prefix)
+	store = testStore
+}
+
+func TestListPrefixFallsBackToIssuePrefix(t *testing.T) {
+	resetConfigForPrefixTest(t)
+	prefixStoreFixture(t, "skillrx")
+
+	in, err := gatherListInput(newListFlagsCommand(t))
+	if err != nil {
+		t.Fatalf("gatherListInput: %v", err)
+	}
+	if in.Prefix != "skillrx-" {
+		t.Errorf("in.Prefix = %q, want skillrx- (fallback to store issue_prefix)", in.Prefix)
+	}
+}
+
+func TestListPrefixFlagBeatsIssuePrefix(t *testing.T) {
+	resetConfigForPrefixTest(t)
+	prefixStoreFixture(t, "skillrx")
+
+	in, err := gatherListInput(newListFlagsCommand(t, "--prefix", "pater"))
+	if err != nil {
+		t.Fatalf("gatherListInput(--prefix): %v", err)
+	}
+	if in.Prefix != "pater-" {
+		t.Errorf("in.Prefix = %q, want pater- (flag outranks issue_prefix)", in.Prefix)
+	}
+}
+
+func TestListPrefixAllBeatsIssuePrefix(t *testing.T) {
+	resetConfigForPrefixTest(t)
+	prefixStoreFixture(t, "skillrx")
+
+	in, err := gatherListInput(newListFlagsCommand(t, "--all"))
+	if err != nil {
+		t.Fatalf("gatherListInput(--all): %v", err)
+	}
+	if in.Prefix != "" {
+		t.Errorf("in.Prefix = %q, want empty (--all bypasses issue_prefix)", in.Prefix)
+	}
+}
+
+func TestNormalizePrefixFilter(t *testing.T) {
+	cases := []struct{ in, want string }{
+		{"", ""},
+		{"skillrx", "skillrx-"},
+		{"skillrx-", "skillrx-"},
+		{"skillrx--", "skillrx-"},
+		{"sc-dolt", "sc-dolt-"},
+	}
+	for _, c := range cases {
+		if got := normalizePrefixFilter(c.in); got != c.want {
+			t.Errorf("normalizePrefixFilter(%q) = %q, want %q", c.in, got, c.want)
+		}
+	}
+}
+
 // --- bd ready ---
 
 func TestReadyPrefixFlagMapsToFilter(t *testing.T) {
@@ -125,5 +195,21 @@ func TestReadyPrefixLegacyNoFilter(t *testing.T) {
 	}
 	if got.in.filter.IDPrefix != "" {
 		t.Errorf("filter.IDPrefix = %q, want empty (legacy)", got.in.filter.IDPrefix)
+	}
+}
+
+func TestReadyPrefixFallsBackToIssuePrefix(t *testing.T) {
+	resetConfigForPrefixTest(t)
+	prefixStoreFixture(t, "skillrx")
+
+	got := runGatherReadyInput(t, newReadyFlagsCommand(t), nil)
+	if got.err != nil {
+		t.Fatalf("gatherReadyInput: %v", got.err)
+	}
+	if got.in.Prefix != "skillrx-" {
+		t.Errorf("in.Prefix = %q, want skillrx- (fallback to store issue_prefix)", got.in.Prefix)
+	}
+	if got.in.filter.IDPrefix != "skillrx-" {
+		t.Errorf("filter.IDPrefix = %q, want skillrx- (fallback to store issue_prefix)", got.in.filter.IDPrefix)
 	}
 }
