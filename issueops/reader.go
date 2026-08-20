@@ -37,6 +37,9 @@ type ReadyRequest struct {
 	Assignee string
 	// Unassigned restricts to rows with no assignee.
 	Unassigned bool
+	// Prefix restricts to issues whose ID starts with this prefix (e.g.
+	// "skillrx-" matches "skillrx-abc123"). Empty means no prefix filter.
+	Prefix string
 
 	// Labels must ALL be present; LabelsAny requires at least one;
 	// ExcludeLabels must be absent. All three are raw: normalization happens
@@ -140,6 +143,8 @@ type ListRequest struct {
 	Assignee    string
 	TitleSearch string
 	SpecPrefix  string
+	// Prefix filters by issue ID prefix (e.g. "skillrx-" matches "skillrx-abc123").
+	Prefix string
 	// IDFilter is a comma-separated id set.
 	IDFilter string
 

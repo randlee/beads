@@ -87,6 +87,11 @@ func gatherReadyInput(cmd *cobra.Command, resolveCap func(*cobra.Command) (int, 
 	in.IncludeDeferred, _ = cmd.Flags().GetBool("include-deferred")
 	in.IncludeEphemeral, _ = cmd.Flags().GetBool("include-ephemeral")
 	in.ExcludeTypes, _ = cmd.Flags().GetStringSlice("exclude-type")
+	if cmd.Flags().Changed("prefix") {
+		in.Prefix, _ = cmd.Flags().GetString("prefix")
+	} else {
+		in.Prefix = config.GetString("list.prefix")
+	}
 
 	if molTypeStr, _ := cmd.Flags().GetString("mol-type"); molTypeStr != "" {
 		mt := types.MolType(molTypeStr)
