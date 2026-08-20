@@ -2176,6 +2176,7 @@ type WorkFilter struct {
 	// legacy default of ('open', 'in_progress') applies.
 	Statuses      []Status
 	Type          string // Filter by issue type (task, bug, feature, epic, merge-request, etc.)
+	IDPrefix      string // Filter by issue ID prefix (e.g., "skillrx-" to match "skillrx-abc123")
 	Priority      *int
 	Assignee      *string
 	Unassigned    bool     // Filter for issues with no assignee

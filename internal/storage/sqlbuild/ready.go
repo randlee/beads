@@ -120,6 +120,10 @@ func BuildReadyWorkWhere(filter types.WorkFilter, tables FilterTables, in ReadyW
 	if !filter.IncludeEphemeral {
 		whereClauses = append(whereClauses, "(ephemeral = 0 OR ephemeral IS NULL)")
 	}
+	if filter.IDPrefix != "" {
+		whereClauses = append(whereClauses, "id LIKE ?")
+		args = append(args, filter.IDPrefix+"%")
+	}
 
 	if filter.Priority != nil {
 		whereClauses = append(whereClauses, "priority = ?")
