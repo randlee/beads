@@ -291,6 +291,9 @@ func BuildListFilter(in issueops.ListRequest, cfg ListConfig) (types.IssueFilter
 	if in.SpecPrefix != "" {
 		filter.SpecIDPrefix = in.SpecPrefix
 	}
+	if in.Prefix != "" {
+		filter.IDPrefix = in.Prefix
+	}
 
 	if in.TitleContains != "" {
 		filter.TitleContains = in.TitleContains

@@ -344,6 +344,7 @@ func Initialize() error {
 
 	// List command defaults
 	v.SetDefault("list.limit", 50)
+	v.SetDefault("list.prefix", "")
 
 	// Output configuration (GH#1384)
 	// Controls title display in command feedback messages.
