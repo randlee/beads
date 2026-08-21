@@ -62,3 +62,47 @@ func TestClaimAdvancedTheRow(t *testing.T) {
 		})
 	}
 }
+
+// TestWorkspacePrefixOverride pins the workspace prefix decision: the workspace
+// config.yaml prefix (CreateRequest.IDPrefix) must win over the shared DB's
+// issue_prefix scalar for all creates — auto-mint, explicit --id, and child
+// --parent. The front door leaves IDPrefix empty under --global and for remote
+// clients, so a non-empty value always means \"the workspace knows better.\"
+// This is the fix that makes `bd create` mint ap-* in an ap-* workspace whose
+// shared DB scalar still reads skillrx, and lets explicit --id ap-xxx pass
+// validation in the same environment.
+func TestWorkspacePrefixOverride(t *testing.T) {
+	tests := []struct {
+		name     string
+		idPrefix string
+		want     string
+	}{
+		{
+			name:     "workspace prefix wins",
+			idPrefix: "ap",
+			want:     "ap",
+		},
+		{
+			name:     "no workspace prefix leaves DB scalar in control",
+			idPrefix: "",
+			want:     "",
+		},
+		{
+			name:     "trailing hyphen is stripped to avoid double-dash",
+			idPrefix: "ap-",
+			want:     "ap",
+		},
+		{
+			name:     "bare empty is a no-op",
+			idPrefix: "",
+			want:     "",
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := workspacePrefixOverride(tt.idPrefix); got != tt.want {
+				t.Errorf("workspacePrefixOverride(%q) = %q, want %q", tt.idPrefix, got, tt.want)
+			}
+		})
+	}
+}
