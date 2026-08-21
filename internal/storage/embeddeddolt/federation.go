@@ -120,7 +120,7 @@ func (s *EmbeddedDoltStore) AddFederationPeer(ctx context.Context, peer *storage
 			return err
 		}
 		// Also add the Dolt remote.
-		return issueops.AddRemoteIfNotExists(ctx, tx, peer.Name, peer.RemoteURL)
+		return issueops.AddRemoteIfNotExists(ctx, tx, peer.Name, peer.RemoteURL, "")
 	}); err != nil {
 		return err
 	}

@@ -18,7 +18,7 @@ type Remote struct {
 }
 
 type RemoteSQLRepository interface {
-	AddRemote(ctx context.Context, name, url string) error
+	AddRemote(ctx context.Context, name, url, gitRef string) error
 	RemoveRemote(ctx context.Context, name string) error
 	ListRemotes(ctx context.Context) ([]Remote, error)
 }
