@@ -226,7 +226,16 @@ func assignCreateIssueIDInTx(ctx context.Context, tx DBTX, bc *BatchContext, iss
 		return nil
 	}
 	if !bc.Opts.SkipPrefixValidation {
-		if err := ValidateIssueIDPrefix(issue.ID, bc.ConfigPrefix, bc.AllowedPrefixes); err != nil {
+		// A workspace prefix override (minted above from the local front
+		// door's CreateRequest.IDPrefix) is authoritative for the freshly
+		// generated ID too: the batch engine re-validates the minted ID on a
+		// second pass, and must not reject ap-* against the shared DB's
+		// skillrx scalar.
+		validatePrefix := bc.ConfigPrefix
+		if issue.PrefixOverride != "" {
+			validatePrefix = issue.PrefixOverride
+		}
+		if err := ValidateIssueIDPrefix(issue.ID, validatePrefix, bc.AllowedPrefixes); err != nil {
 			return fmt.Errorf("prefix validation failed for %s: %w", issue.ID, err)
 		}
 	}
