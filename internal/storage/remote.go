@@ -4,7 +4,7 @@ import "context"
 
 // RemoteStore provides remote management and push/pull/fetch operations.
 type RemoteStore interface {
-	AddRemote(ctx context.Context, name, url string) error
+	AddRemote(ctx context.Context, name, url, gitRef string) error
 	RemoveRemote(ctx context.Context, name string) error
 	HasRemote(ctx context.Context, name string) (bool, error)
 	ListRemotes(ctx context.Context) ([]RemoteInfo, error)
