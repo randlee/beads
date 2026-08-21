@@ -1561,7 +1561,7 @@ func ensureDoltRemote(ctx context.Context, st doltRemoteAddStore, name, url, git
 		existingFromDiskOnly = existingURL != ""
 	}
 	if existingURL == "" {
-		if err := st.AddRemote(ctx, name, url, gitRef, ""); err != nil {
+		if err := st.AddRemote(ctx, name, url, gitRef); err != nil {
 			return doltRemoteAddResult{}, fmt.Errorf("add remote %s: %w", name, err)
 		}
 		return doltRemoteAddResult{}, nil
@@ -1582,7 +1582,7 @@ func ensureDoltRemote(ctx context.Context, st doltRemoteAddStore, name, url, git
 			return doltRemoteAddResult{}, fmt.Errorf("remove existing remote %s: %w", name, err)
 		}
 	}
-	if err := st.AddRemote(ctx, name, url, gitRef, ""); err != nil {
+	if err := st.AddRemote(ctx, name, url, gitRef); err != nil {
 		return doltRemoteAddResult{}, fmt.Errorf("add remote %s: %w", name, err)
 	}
 	return doltRemoteAddResult{}, nil
