@@ -20,7 +20,7 @@ func (f *fakeDoltRemoteAddStore) ListRemotes(ctx context.Context) ([]storage.Rem
 	return append([]storage.RemoteInfo(nil), f.remotes...), nil
 }
 
-func (f *fakeDoltRemoteAddStore) AddRemote(ctx context.Context, name, url string) error {
+func (f *fakeDoltRemoteAddStore) AddRemote(ctx context.Context, name, url, gitRef string) error {
 	f.calls = append(f.calls, "add "+name+" "+url)
 	f.remotes = append(f.remotes, storage.RemoteInfo{Name: name, URL: url})
 	return nil
@@ -46,7 +46,7 @@ func TestEnsureDoltRemoteSameNormalizedURLIsNoop(t *testing.T) {
 	}
 	prompted := false
 
-	result, err := ensureDoltRemote(context.Background(), store, "origin", "git+https://github.com/org/repo.git", func(surface, name, existingURL, newURL string) bool {
+	result, err := ensureDoltRemote(context.Background(), store, "origin", "git+https://github.com/org/repo.git", "", func(surface, name, existingURL, newURL string) bool {
 		prompted = true
 		return true
 	})
@@ -72,7 +72,7 @@ func TestEnsureDoltRemoteDifferentURLReplacesExisting(t *testing.T) {
 	}
 	confirmed := false
 
-	result, err := ensureDoltRemote(context.Background(), store, "origin", "git+https://github.com/org/new.git", func(surface, name, existingURL, newURL string) bool {
+	result, err := ensureDoltRemote(context.Background(), store, "origin", "git+https://github.com/org/new.git", "", func(surface, name, existingURL, newURL string) bool {
 		confirmed = true
 		if surface != "SQL server" || name != "origin" || existingURL != "git+https://github.com/org/old.git" || newURL != "git+https://github.com/org/new.git" {
 			t.Fatalf("confirm args = %q %q %q %q", surface, name, existingURL, newURL)
@@ -133,7 +133,7 @@ func TestEnsureDoltRemoteColdStartSameURLIsNoop(t *testing.T) {
 	}
 	prompted := false
 
-	result, err := ensureDoltRemote(context.Background(), store, "origin", "git+https://github.com/org/repo.git", func(surface, name, existingURL, newURL string) bool {
+	result, err := ensureDoltRemote(context.Background(), store, "origin", "git+https://github.com/org/repo.git", "", func(surface, name, existingURL, newURL string) bool {
 		prompted = true
 		return true
 	})
@@ -162,7 +162,7 @@ func TestEnsureDoltRemoteColdStartDifferentURLPrompts(t *testing.T) {
 			},
 		}
 		confirmed := false
-		result, err := ensureDoltRemote(context.Background(), store, "origin", "git+https://github.com/org/new.git", func(surface, name, existingURL, newURL string) bool {
+		result, err := ensureDoltRemote(context.Background(), store, "origin", "git+https://github.com/org/new.git", "", func(surface, name, existingURL, newURL string) bool {
 			confirmed = true
 			if existingURL != "git+https://github.com/org/old.git" {
 				t.Fatalf("confirm existingURL = %q, want the persisted on-disk URL", existingURL)
@@ -192,7 +192,7 @@ func TestEnsureDoltRemoteColdStartDifferentURLPrompts(t *testing.T) {
 			},
 			removeErr: errors.New("unknown remote: origin"),
 		}
-		result, err := ensureDoltRemote(context.Background(), store, "origin", "git+https://github.com/org/new.git", func(surface, name, existingURL, newURL string) bool {
+		result, err := ensureDoltRemote(context.Background(), store, "origin", "git+https://github.com/org/new.git", "", func(surface, name, existingURL, newURL string) bool {
 			return true
 		})
 		if err != nil {

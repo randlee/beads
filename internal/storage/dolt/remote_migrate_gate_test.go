@@ -86,7 +86,7 @@ func TestDoltNew_RemoteMigrateGate_BlocksReopen(t *testing.T) {
 		t.Skip("no CLI dir available")
 	}
 	initLocalDoltRepoForRemote(t, cliDir)
-	if err := doltutil.AddCLIRemote(cliDir, "origin", "file://"+filepath.Join(tmpDir, "remote")); err != nil {
+	if err := doltutil.AddCLIRemote(cliDir, "origin", "file://"+filepath.Join(tmpDir, "remote"), ""); err != nil {
 		t.Fatalf("AddCLIRemote: %v", err)
 	}
 	// Precondition: no remote is visible in SQL, so this reopen can only trip the
@@ -151,7 +151,7 @@ func TestDoltStore_hasPersistedCLIRemote(t *testing.T) {
 	}
 
 	const name, url = "origin", "file:///tmp/test-haspersisted-remote"
-	if err := doltutil.AddCLIRemote(cliDir, name, url); err != nil {
+	if err := doltutil.AddCLIRemote(cliDir, name, url, ""); err != nil {
 		t.Fatalf("AddCLIRemote: %v", err)
 	}
 
