@@ -879,7 +879,7 @@ func TestCloudAuthCLIRouting(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			ctx := context.Background()
 			remote := fmt.Sprintf("origin_%d", i)
-			if err := store.AddRemote(ctx, remote, tt.remoteURL); err != nil {
+			if err := store.AddRemote(ctx, remote, tt.remoteURL, ""); err != nil {
 				t.Fatalf("AddRemote: %v", err)
 			}
 			addCloudAuthCLIRemote(t, store, remote, tt.remoteURL)
@@ -935,7 +935,7 @@ func TestCloudAuthCLIRoutingStructural(t *testing.T) {
 		// which pre-populate CLI remotes — can't provide.
 		store := openCloudAuthTestStore(t, "structural_sql_only")
 		remoteURL := "az://account.blob.core.windows.net/container"
-		if err := store.AddRemote(context.Background(), "origin", remoteURL); err != nil {
+		if err := store.AddRemote(context.Background(), "origin", remoteURL, ""); err != nil {
 			t.Fatalf("AddRemote: %v", err)
 		}
 		ensureCloudAuthCLIDatabase(t, store)
@@ -961,10 +961,10 @@ func TestPerRemoteCloudAuthHybrid(t *testing.T) {
 
 	ctx := context.Background()
 	store := openCloudAuthTestStore(t, "hybrid")
-	if err := store.AddRemote(ctx, "primary", "dolthub://org/beads"); err != nil {
+	if err := store.AddRemote(ctx, "primary", "dolthub://org/beads", ""); err != nil {
 		t.Fatalf("AddRemote primary: %v", err)
 	}
-	if err := store.AddRemote(ctx, "backup", "az://account.blob.core.windows.net/dolt/beads"); err != nil {
+	if err := store.AddRemote(ctx, "backup", "az://account.blob.core.windows.net/dolt/beads", ""); err != nil {
 		t.Fatalf("AddRemote backup: %v", err)
 	}
 	addCloudAuthCLIRemote(t, store, "primary", "dolthub://org/beads")
