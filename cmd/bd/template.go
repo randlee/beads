@@ -57,6 +57,13 @@ type CloneOptions struct {
 	Actor     string            // Actor performing the operation
 	Ephemeral bool              // If true, spawned issues are marked for bulk deletion
 	Prefix    string            // Override prefix for ID generation (bd-hobo: distinct prefixes)
+	// PrefixOverride, when non-empty, completely replaces the configured
+	// prefix for every spawned issue (mint AND re-validation), exactly like
+	// Issue.PrefixOverride on the create path. It carries the workspace's
+	// composed prefix (e.g. "ap-mol") so pour/wisp mint from the workspace
+	// issue-prefix on a shared DB instead of the DB's scalar. Empty means
+	// "fall back to Prefix + ConfigPrefix" (the ordinary case).
+	PrefixOverride string
 
 	// Dynamic bonding fields (for Christmas Ornament pattern)
 	ParentID string // Parent molecule ID to bond under (e.g., "patrol-x7k")
@@ -698,6 +705,7 @@ func cloneSubgraphInto(ctx context.Context, w molWriter, subgraph *TemplateSubgr
 			EstimatedMinutes:   oldIssue.EstimatedMinutes,
 			Ephemeral:          opts.Ephemeral, // mark for cleanup when closed
 			IDPrefix:           opts.Prefix,    // distinct prefixes for mols/wisps
+			PrefixOverride:     opts.PrefixOverride,
 			// Gate fields (for async coordination)
 			AwaitType: oldIssue.AwaitType,
 			AwaitID:   substituteVariables(oldIssue.AwaitID, opts.Vars),
