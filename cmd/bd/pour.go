@@ -196,7 +196,14 @@ func runPour(cmd *cobra.Command, args []string) error {
 		return nil
 	}
 
-	result, err := spawnMolecule(ctx, store, subgraph, vars, in.assignee, actor, false, types.IDPrefixMol)
+	result, err := spawnMoleculeWithOptions(ctx, store, subgraph, CloneOptions{
+		Vars:           vars,
+		Assignee:       in.assignee,
+		Actor:          actor,
+		Ephemeral:      false,
+		Prefix:         types.IDPrefixMol,
+		PrefixOverride: overlayMolPrefix(types.IDPrefixMol),
+	})
 	if err != nil {
 		return HandleError("pouring proto: %v", err)
 	}

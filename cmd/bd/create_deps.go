@@ -252,3 +252,20 @@ func overlayYAMLPrefix(dbPrefix string) string {
 	}
 	return dbPrefix
 }
+
+// overlayMolPrefix composes the workspace issue-prefix with a molecule/wisp
+// suffix for pour/wisp minting. Mirror of overlayYAMLPrefix, but it appends the
+// mol/wisp distinction: a workspace "ap" + suffix "mol" → "ap-mol". Returns ""
+// under --global (shared DB scalar is authoritative) and when the workspace
+// declares no issue-prefix — in both cases the caller's CloneOptions.Prefix
+// ("mol"/"wisp") still applies via the ordinary ConfigPrefix+"-"+IDPrefix path.
+func overlayMolPrefix(suffix string) string {
+	if globalFlag {
+		return ""
+	}
+	p := strings.TrimSpace(config.GetString("issue-prefix"))
+	if p == "" {
+		return ""
+	}
+	return strings.TrimSuffix(p, "-") + "-" + suffix
+}
