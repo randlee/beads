@@ -278,11 +278,12 @@ func runWispCreateCore(cmd *cobra.Command, args []string) error {
 	}
 
 	result, err := spawnMoleculeWithOptions(ctx, store, subgraph, CloneOptions{
-		Vars:      vars,
-		Actor:     actor,
-		Ephemeral: true,
-		Prefix:    types.IDPrefixWisp,
-		RootOnly:  rootOnly,
+		Vars:           vars,
+		Actor:          actor,
+		Ephemeral:      true,
+		Prefix:         types.IDPrefixWisp,
+		PrefixOverride: overlayMolPrefix(types.IDPrefixWisp),
+		RootOnly:       rootOnly,
 	})
 	if err != nil {
 		return HandleError("creating wisp: %v", err)
