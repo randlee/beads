@@ -84,11 +84,12 @@ func runWispCreateProxiedServer(ctx context.Context, in wispCreateInput) error {
 	result, err := uow.RunTxResult(ctx, uowProvider, func(ctx context.Context, uw uow.UnitOfWork) (*InstantiateResult, string, error) {
 		w := newUOWMolWriter(uw)
 		spawnResult, err := cloneSubgraphInto(ctx, w, subgraph, CloneOptions{
-			Vars:      vars,
-			Actor:     actor,
-			Ephemeral: true,
-			Prefix:    types.IDPrefixWisp,
-			RootOnly:  in.rootOnly,
+			Vars:           vars,
+			Actor:          actor,
+			Ephemeral:      true,
+			Prefix:         types.IDPrefixWisp,
+			PrefixOverride: overlayMolPrefix(types.IDPrefixWisp),
+			RootOnly:       in.rootOnly,
 		})
 		if err != nil {
 			return nil, "", fmt.Errorf("creating wisp: %w", err)

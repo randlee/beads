@@ -118,10 +118,11 @@ func runPourProxiedServer(ctx context.Context, in pourInput) error {
 		}
 
 		spawnResult, err := cloneSubgraphInto(ctx, w, subgraph, CloneOptions{
-			Vars:     vars,
-			Assignee: in.assignee,
-			Actor:    actor,
-			Prefix:   types.IDPrefixMol,
+			Vars:           vars,
+			Assignee:       in.assignee,
+			Actor:          actor,
+			Prefix:         types.IDPrefixMol,
+			PrefixOverride: overlayMolPrefix(types.IDPrefixMol),
 		})
 		if err != nil {
 			return pourProxiedResult{}, "", fmt.Errorf("pouring proto: %w", err)
