@@ -452,6 +452,21 @@ Non-interactive mode (--non-interactive or BD_NON_INTERACTIVE=1):
 		}
 
 		initEvt := metrics.NewCommandEvent("init-" + resolveInitDoltMode(initProxiedServer, sharedServer, initServerMode))
+		// contessa-09i (P1): refuse silent worktree-init on EVERY mode branch
+		// (plain, --proxied-server, --team-server, --shared-server). The
+		// worktree fallback exists to ATTACH to a shared store at the main repo
+		// root; creating one silently from a worktree writes .beads/ to a path
+		// the operator never chose and reports success. Earliest common point,
+		// ahead of the mode branches which otherwise resolve beadsDir
+		// independently (proxied via ResolveProxiedInit, plain via
+		// GetWorktreeFallbackBeadsDir at ~L921).
+		if os.Getenv("BEADS_DIR") == "" && git.IsWorktree() {
+			if fallbackDir := beads.GetWorktreeFallbackBeadsDir(); fallbackDir != "" {
+				if err := guardWorktreeInit(fallbackDir); err != nil {
+					return err
+				}
+			}
+		}
 		defer func() {
 			if c := metrics.Global(); c != nil {
 				c.CloseEventAndAdd(initEvt)
@@ -2837,6 +2852,26 @@ func initIfMissingDatabaseMismatch(existingDBName, requestedDatabase string) boo
 		return false
 	}
 	return !strings.EqualFold(existingDBName, requestedDatabase)
+}
+
+// guardWorktreeInit refuses a silent worktree-init (contessa-09i, P1).
+// Inside a git worktree, beadsDirForInit resolves to the MAIN repo root's
+// .beads (GetWorktreeFallbackBeadsDir). Attaching to an EXISTING shared store
+// there is the sanctioned worktree model; CREATING one silently is the bug —
+// it lands data at a path the operator did not choose and reports success.
+// BEADS_DIR=... bypasses this guard entirely (checked before the call).
+func guardWorktreeInit(fallbackDir string) error {
+	if fi, err := os.Stat(fallbackDir); err == nil && fi.IsDir() {
+		return nil // existing shared store: attach is intentional
+	}
+	cwd, _ := os.Getwd()
+	return fmt.Errorf("refusing to initialize in git worktree: the shared .beads location %s (main repo root) does not exist\n"+
+		"  Worktree fallback is for attaching to an EXISTING shared store, not creating one from a worktree (contessa-09i).\n"+
+		"  Choose one:\n"+
+		"    • run 'bd init' from the main repository root instead of the worktree (%s)\n"+
+		"    • target a specific dir explicitly: BEADS_DIR=<path> bd init ...\n"+
+		"    • create a worktree-local store: BEADS_DIR=%s bd init ...",
+		fallbackDir, filepath.Dir(fallbackDir), filepath.Join(cwd, ".beads"))
 }
 
 // resolveInitBeadsDir resolves the .beads directory that init would target,
