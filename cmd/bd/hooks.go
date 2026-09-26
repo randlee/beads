@@ -1731,14 +1731,70 @@ func runPostMergeHook() int {
 	return 0
 }
 
-// runPrePushHook runs chained hooks before push.
-// Returns 0 to allow push, non-zero to block.
+// runPrePushHook runs chained hooks before push, then publishes beads to the
+// configured Dolt remote (server mode) so a git push also syncs the beads
+// state. Returns 0 to allow push, non-zero to block.
 func runPrePushHook(args []string) int {
 	// Run chained hook first (if exists)
 	if exitCode := runChainedHook("pre-push", args); exitCode != 0 {
 		return exitCode
 	}
+	syncBeadsOnPush()
 	return 0
+}
+
+// syncBeadsOnPush publishes the beads state to the configured Dolt remote on
+// git push. It is a no-op unless a sync remote is configured and remote sync
+// is enabled (not local-only, not proxied-server). The sync runs as a `bd sync`
+// subprocess with BD_GIT_HOOK cleared so its own hook-detection logic (backup/
+// export skip) does not fire. A failed sync is reported as a warning and never
+// refuses the code push — the lead re-runs `bd sync` (see the
+// atm-bd-orchestration skill's Sync section).
+func syncBeadsOnPush() {
+	if !shouldSyncOnPush() {
+		return
+	}
+	beadsDir := beads.FindBeadsDir()
+	if beadsDir == "" {
+		return
+	}
+	// Run from the project root, not .beads/. Embedded Dolt discovery starts
+	// from cwd, and cwd=.beads/ can make the sync subprocess look for a nested
+	// .beads/.beads workspace and warn on every push (GH#3454).
+	cmd := exec.Command("bd", "sync", "--quiet")
+	cmd.Dir = filepath.Dir(beadsDir)
+	cmd.Env = filterEnv(os.Environ(), "BD_GIT_HOOK")
+	cmd.Stdout = os.Stderr
+	cmd.Stderr = os.Stderr
+	if err := cmd.Run(); err != nil {
+		if ee, ok := err.(*exec.ExitError); ok {
+			fmt.Fprintf(os.Stderr, "pre-push: WARNING: bd sync exited %d; beads state NOT published. Code push continues; run 'bd sync' again.\n", ee.ExitCode())
+		} else {
+			fmt.Fprintf(os.Stderr, "pre-push: WARNING: bd sync failed: %v; beads state NOT published. Code push continues; run 'bd sync' again.\n", err)
+		}
+	}
+}
+
+// shouldSyncOnPush reports whether the pre-push hook should attempt to publish
+// beads: the feature is enabled (sync.pre-push, default true), a sync remote is
+// configured, and remote sync is not disabled. Mirrors the guards `bd sync`
+// itself applies (no-remote no-op, local-only no-op, proxied-server
+// unsupported), so the subprocess is skipped when it would only no-op or print
+// disabled-guidance noise.
+func shouldSyncOnPush() bool {
+	if !config.GetBool("sync.pre-push") {
+		return false
+	}
+	if resolveSyncRemote() == "" {
+		return false
+	}
+	if isDoltLocalOnly() {
+		return false
+	}
+	if usesProxiedServer() {
+		return false
+	}
+	return true
 }
 
 // runPostCheckoutHook runs chained hooks after branch checkout, then runs
