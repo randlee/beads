@@ -267,6 +267,7 @@ func Initialize() error {
 
 	// Sync configuration defaults (bd-4u8)
 	v.SetDefault("sync.require_confirmation_on_mass_delete", false)
+	v.SetDefault("sync.pre-push", true) // publish beads to the Dolt remote on git push (server mode)
 
 	v.SetDefault("metrics.disabled", false)
 	v.SetDefault("metrics.endpoint", "https://gastownhall-eventsapi.com/mp/collect")
