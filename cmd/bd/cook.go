@@ -148,20 +148,33 @@ func parseCookFlags(cmd *cobra.Command, args []string) (*cookFlags, error) {
 	}, nil
 }
 
+// loadFormulaByNameOrPath resolves a formula argument that may be either a
+// registry name (.beads/formulas/) or a direct file path. Registry lookup wins;
+// the path fallback lets `bd cook x.formula.toml` and `bd mol pour
+// ./any/dir/x.formula.toml` work identically (bd-hp8g added the fallback to
+// the cook-only resolver and the pour/wisp/bond/seed resolver drifted without
+// it — sc-compose#615).
+func loadFormulaByNameOrPath(parser *formula.Parser, nameOrPath string) (*formula.Formula, error) {
+	f, err := parser.LoadByName(nameOrPath)
+	if err == nil {
+		return f, nil
+	}
+	if f2, err2 := parser.ParseFile(nameOrPath); err2 == nil {
+		return f2, nil
+	}
+	return nil, err // registry miss is the primary error; the path attempt failed too
+}
+
 // loadAndResolveFormula parses a formula file and applies all transformations.
 // It first tries to load by name from the formula registry (.beads/formulas/),
 // and falls back to parsing as a file path if that fails.
 func loadAndResolveFormula(formulaPath string, searchPaths []string) (*formula.Formula, error) {
 	parser := formula.NewParser(searchPaths...)
 
-	// Try to load by name first (from .beads/formulas/ registry)
-	f, err := parser.LoadByName(formulaPath)
+	// Registry name first, file path fallback (bd-hp8g)
+	f, err := loadFormulaByNameOrPath(parser, formulaPath)
 	if err != nil {
-		// Fall back to parsing as a file path
-		f, err = parser.ParseFile(formulaPath)
-		if err != nil {
-			return nil, fmt.Errorf("parsing formula: %w", err)
-		}
+		return nil, fmt.Errorf("parsing formula: %w", err)
 	}
 
 	// Resolve inheritance
@@ -703,8 +716,11 @@ func resolveAndCookFormulaWithVars(formulaName string, searchPaths []string, con
 	// Create parser with search paths
 	parser := formula.NewParser(searchPaths...)
 
-	// Load formula by name
-	f, err := parser.LoadByName(formulaName)
+	// Registry name first, file path fallback — same resolution contract as
+	// bd cook (bd-hp8g). The two resolvers drifted: cook gained the path
+	// fallback, this one did not, so `bd mol pour ./x.formula.toml` failed
+	// while `bd cook ./x.formula.toml` worked (sc-compose#615).
+	f, err := loadFormulaByNameOrPath(parser, formulaName)
 	if err != nil {
 		return nil, fmt.Errorf("loading formula %q: %w", formulaName, err)
 	}
