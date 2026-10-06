@@ -190,7 +190,7 @@ func CreateIssueInTxWithResult(ctx context.Context, tx DBTX, bc *BatchContext, i
 	// Journal the create once, after labels and comments are in the row's
 	// transaction, so the snapshot is the complete bead. The early returns above
 	// (collision skip, stale reject) wrote nothing and journal nothing.
-	if err := RecordEventInTx(ctx, tx, EventCreate, issue.ID); err != nil {
+	if err := RecordEventInTx(ctx, tx, EventCreate, issue.ID, actor); err != nil {
 		return result, err
 	}
 	// Creation-time comments (import/interchange carries them inline) are
@@ -226,7 +226,16 @@ func assignCreateIssueIDInTx(ctx context.Context, tx DBTX, bc *BatchContext, iss
 		return nil
 	}
 	if !bc.Opts.SkipPrefixValidation {
-		if err := ValidateIssueIDPrefix(issue.ID, bc.ConfigPrefix, bc.AllowedPrefixes); err != nil {
+		// A workspace prefix override (minted above from the local front
+		// door's CreateRequest.IDPrefix) is authoritative for the freshly
+		// generated ID too: the batch engine re-validates the minted ID on a
+		// second pass, and must not reject ap-* against the shared DB's
+		// skillrx scalar.
+		validatePrefix := bc.ConfigPrefix
+		if issue.PrefixOverride != "" {
+			validatePrefix = issue.PrefixOverride
+		}
+		if err := ValidateIssueIDPrefix(issue.ID, validatePrefix, bc.AllowedPrefixes); err != nil {
 			return fmt.Errorf("prefix validation failed for %s: %w", issue.ID, err)
 		}
 	}
@@ -970,7 +979,7 @@ func PersistDependenciesWithOptionsResult(ctx context.Context, tx DBTX, issues [
 				}
 				// Creation-time edges are independently replayable operations; do
 				// not rely on the issue create payload's inline dependencies.
-				if err := RecordDepEventInTx(ctx, tx, EventDepAdd, dep.IssueID, string(dep.Type), dep.DependsOnID, metadata); err != nil {
+				if err := RecordDepEventInTx(ctx, tx, EventDepAdd, dep.IssueID, string(dep.Type), dep.DependsOnID, metadata, actor); err != nil {
 					return result, err
 				}
 			}

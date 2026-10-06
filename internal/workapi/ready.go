@@ -41,10 +41,13 @@ func LimitOr(limit *int, fallback int) int {
 // own to shape, and running it through here would change it.
 func BuildReadyFilter(in issueops.ReadyRequest) (types.WorkFilter, error) {
 	filter := types.WorkFilter{
-		// Open only, not in_progress - the same set `bd list --ready` shows.
-		Status: types.StatusOpen,
-		Type:   utils.NormalizeIssueType(in.IssueType),
-		Limit:  LimitOr(in.Limit, DefaultReadyLimit),
+		// Open only, not in_progress - the same set `bd list --ready` shows
+		// when --status is omitted (an explicit --status is an intersection;
+		// GH#5832).
+		Status:   types.StatusOpen,
+		Type:     utils.NormalizeIssueType(in.IssueType),
+		Limit:    LimitOr(in.Limit, DefaultReadyLimit),
+		IDPrefix: in.Prefix,
 		// Carried for the callers that consume this filter as a VALUE and run
 		// their own query (cmd/bd's proxied `bd ready`), where the seam beneath
 		// them renders it. Both implementations of issueops.Reader take it back

@@ -396,9 +396,23 @@ func TestBuildReadyWorkWhereStatusFilter(t *testing.T) {
 		{
 			name:            "SingularStatusWinsOverStatuses",
 			filter:          types.WorkFilter{Status: "open", Statuses: []types.Status{"blocked", "pinned"}},
-			wantClause:      "status = ?",
+			wantClause:      "(status = ? OR status IN (SELECT name FROM custom_statuses WHERE category = 'active'))",
 			rejectClause:    "status IN (?",
 			wantLeadingArgs: []any{"open"},
+		},
+		{
+			name:            "OpenIncludesCustomActiveCategory",
+			filter:          types.WorkFilter{Status: types.StatusOpen},
+			wantClause:      "status IN (SELECT name FROM custom_statuses WHERE category = 'active')",
+			rejectClause:    "status IN ('open', 'in_progress')",
+			wantLeadingArgs: []any{"open"},
+		},
+		{
+			name:            "NonOpenSingularStatusStaysExact",
+			filter:          types.WorkFilter{Status: types.StatusInProgress},
+			wantClause:      "status = ?",
+			rejectClause:    "custom_statuses",
+			wantLeadingArgs: []any{"in_progress"},
 		},
 		{
 			name:         "EmptyFilterLegacyDefault",
@@ -431,5 +445,24 @@ func TestBuildReadyWorkWhereStatusFilter(t *testing.T) {
 				}
 			}
 		})
+	}
+}
+
+// TestOptionalWispTable pins the set a wisp query may treat as "no wisps".
+// leases and wisp_labels are joined or hydrated by that query but are not the
+// wisp plane being absent, so tolerating them turns a broken database into an
+// empty result.
+func TestOptionalWispTable(t *testing.T) {
+	t.Parallel()
+
+	for _, name := range []string{"wisps", "wisp_dependencies", "WISPS"} {
+		if !OptionalWispTable(name) {
+			t.Errorf("OptionalWispTable(%q) = false, want true", name)
+		}
+	}
+	for _, name := range []string{"leases", "wisp_labels", "issues", "labels", "", "wisp"} {
+		if OptionalWispTable(name) {
+			t.Errorf("OptionalWispTable(%q) = true, want false", name)
+		}
 	}
 }

@@ -21,7 +21,7 @@ type remoteSQLRepositoryImpl struct {
 
 var _ domain.RemoteSQLRepository = (*remoteSQLRepositoryImpl)(nil)
 
-func (r *remoteSQLRepositoryImpl) AddRemote(ctx context.Context, name, url string) error {
+func (r *remoteSQLRepositoryImpl) AddRemote(ctx context.Context, name, url, gitRef string) error {
 	if err := r.vc.Remote(ctx, "add", name, url); err != nil {
 		return fmt.Errorf("db: AddRemote %s: %w", name, err)
 	}

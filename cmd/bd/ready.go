@@ -59,25 +59,11 @@ This is useful for agents executing molecules to see which steps can run next.`,
 		}
 
 		if usesProxiedServer() {
-			// --claim consumes exactly one row, same reasoning as the
-			// direct-path fix in issueops/claim.go: a rig-wide cap sized
-			// for bulk list/ready reads must not block a single-row claim.
-			// Only the bulk (non-claim) proxied ready listing rejects an
-			// active cap.
-			if !claimReady {
-				if err := rejectMaxRowsUnderProxiedServer(cmd); err != nil {
-					return err
-				}
-			} else {
-				// Still validate --max-rows/BEADS_MAX_ROWS here even though
-				// the resolved cap is ignored below: resolveMaxRows is also
-				// where a malformed value (e.g. --max-rows -1) is rejected
-				// with exit 1, and skipping it entirely for the claim-exempt
-				// branch would silently accept a usage error that every
-				// other command (direct or proxied) rejects.
-				if _, _, err := resolveMaxRows(cmd); err != nil {
-					return err
-				}
+			// The proxied ready role cannot enforce a row cap, including on
+			// --claim. Refuse any positive cap rather than silently dropping
+			// this safety limit; malformed values remain usage errors.
+			if err := rejectMaxRowsUnderProxiedServer(cmd); err != nil {
+				return err
 			}
 			return runReadyProxiedServer(cmd, rootCtx)
 		}
@@ -729,6 +715,7 @@ func init() {
 	readyCmd.Flags().StringP("type", "t", "", "Filter by issue type (task, bug, feature, epic, decision, merge-request). Aliases: mr→merge-request, feat→feature, mol→molecule, dec/adr→decision")
 	readyCmd.Flags().String("mol", "", "Filter to steps within a specific molecule")
 	readyCmd.Flags().String("parent", "", "Filter to descendants of this bead/epic")
+	readyCmd.Flags().String("prefix", "", "Filter by issue ID prefix (e.g., 'skillrx-' to match 'skillrx-abc123'). Defaults to the list.prefix config key.")
 	readyCmd.Flags().String("mol-type", "", "Filter by molecule type: swarm, patrol, or work")
 	readyCmd.Flags().Bool("pretty", true, "Display issues in a tree format with status/priority symbols")
 	readyCmd.Flags().Bool("plain", false, "Display issues as a plain numbered list")

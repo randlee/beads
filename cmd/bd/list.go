@@ -240,7 +240,7 @@ func runListCore(cmd *cobra.Command, _ []string) error {
 	}
 
 	if in.watchMode {
-		if err := watchIssues(ctx, activeStore, filter, in.ReadyFlag, in.ParentID, in.SortBy, in.Reverse, in.effectiveLimit); err != nil {
+		if err := watchIssues(ctx, activeStore, filter, in.ReadyFlag, in.ParentID, in.SortBy, in.Reverse, in.effectiveLimit, in.Status); err != nil {
 			if capErr := handleMaxRowsError(err); capErr != nil {
 				return capErr
 			}
@@ -315,7 +315,7 @@ func runListCore(cmd *cobra.Command, _ []string) error {
 				return HandleError("loading dependencies for --deps: %v", depErr)
 			}
 			// Hierarchical --parent walks use an unlimited per-level query, so the tree is never page-truncated.
-			displayPrettyListWithDepsMode(treeIssues, false, allDeps, in.depsMode, false, in.ReadyFlag)
+			displayPrettyListWithDepsMode(treeIssues, false, allDeps, in.depsMode, false, in.ReadyFlag, in.Status)
 			printSkipLabelsFooter(in.SkipLabels)
 			return nil
 		}
@@ -324,7 +324,7 @@ func runListCore(cmd *cobra.Command, _ []string) error {
 		if depErr != nil && in.depsMode != "" {
 			return HandleError("loading dependencies for --deps: %v", depErr)
 		}
-		displayPrettyListWithDepsMode(issues, false, allDeps, in.depsMode, truncated, in.ReadyFlag)
+		displayPrettyListWithDepsMode(issues, false, allDeps, in.depsMode, truncated, in.ReadyFlag, in.Status)
 		printTruncationHint(truncated, in.effectiveLimit)
 		printSkipLabelsFooter(in.SkipLabels)
 		return nil
@@ -408,6 +408,7 @@ func init() {
 	listCmd.Flags().String("label-regex", "", "Filter by label regex pattern (e.g., 'tech-(debt|legacy)')")
 	listCmd.Flags().String("title", "", "Filter by title text (case-insensitive substring match)")
 	listCmd.Flags().String("spec", "", "Filter by spec_id prefix")
+	listCmd.Flags().String("prefix", "", "Filter by issue ID prefix (e.g., 'skillrx-' to match 'skillrx-abc123'). Defaults to the list.prefix config key unless --all is set.")
 	listCmd.Flags().String("id", "", "Filter by specific issue IDs (comma-separated, e.g., bd-1,bd-5,bd-10)")
 	listCmd.Flags().IntP("limit", "n", workapi.DefaultListLimit, "Limit results (default 50, use 0 for unlimited)")
 	listCmd.Flags().Int("offset", 0, "Skip the first N matching results (0-based). Only supported under --proxied-server.")
@@ -469,6 +470,14 @@ func init() {
 
 	// Infra type filtering: exclude agent/role/message by default
 	listCmd.Flags().Bool("include-infra", false, "Include infrastructure beads (agent/role/message) in output")
+
+	// Ephemeral plane: the wisps table is suppressed by default. This is the
+	// PLANE knob on its own — ListRequest.IncludeEphemeral — as distinct from
+	// --include-infra, which admits the plane AND lifts the infra-type
+	// exclusions above. Without it the plane is reachable from the CLI only
+	// through --include-infra's wider bundle, which leaves --wisp-type below
+	// with no narrow way to match anything.
+	listCmd.Flags().Bool("include-ephemeral", false, "Include ephemeral wisp-plane rows in output (normally hidden)")
 
 	// Explicit type exclusion
 	listCmd.Flags().StringSlice("exclude-type", nil, "Exclude issue types from results (comma-separated or repeatable, e.g., --exclude-type=convoy,epic)")

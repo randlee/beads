@@ -81,7 +81,7 @@ func (r *issueSQLRepositoryImpl) Insert(ctx context.Context, issue *types.Issue,
 		}, domain.RecordEventOpts{UseWispsTable: opts.UseWispsTable}); err != nil {
 			return err
 		}
-		return issueops.RecordEventInTx(ctx, r.runner, issueops.EventCreate, issue.ID)
+		return issueops.RecordEventInTx(ctx, r.runner, issueops.EventCreate, issue.ID, actor)
 	}
 	if err := insertIssueRow(ctx, r.runner, table, issue); err != nil {
 		return err
@@ -93,7 +93,7 @@ func (r *issueSQLRepositoryImpl) Insert(ctx context.Context, issue *types.Issue,
 	}, domain.RecordEventOpts{UseWispsTable: opts.UseWispsTable}); err != nil {
 		return err
 	}
-	return issueops.RecordEventInTx(ctx, r.runner, issueops.EventCreate, issue.ID)
+	return issueops.RecordEventInTx(ctx, r.runner, issueops.EventCreate, issue.ID, actor)
 }
 
 func (r *issueSQLRepositoryImpl) InsertBatch(ctx context.Context, issues []*types.Issue, actor string, opts domain.InsertIssueOpts) error {
@@ -120,12 +120,12 @@ func (r *issueSQLRepositoryImpl) PromoteFromEphemeral(ctx context.Context, id, a
 	return issueops.PromoteFromEphemeralInTx(ctx, r.runner, id, actor)
 }
 
-func (r *issueSQLRepositoryImpl) MovePersistence(ctx context.Context, id string, mode types.PersistenceMode) (bool, error) {
+func (r *issueSQLRepositoryImpl) MovePersistence(ctx context.Context, id string, mode types.PersistenceMode, actor string) (bool, error) {
 	issue, err := issueops.GetIssueInTx(ctx, r.runner, id)
 	if err != nil {
 		return false, fmt.Errorf("db: MovePersistence %s: get issue: %w", id, err)
 	}
-	result, err := issueops.MoveIssuePersistenceInTx(ctx, r.runner, issue, mode)
+	result, err := issueops.MoveIssuePersistenceInTx(ctx, r.runner, issue, mode, actor)
 	if err != nil {
 		return false, fmt.Errorf("db: MovePersistence %s: %w", id, err)
 	}
@@ -323,11 +323,14 @@ func (r *issueSQLRepositoryImpl) Update(ctx context.Context, id string, updates 
 			if err := issueops.RecomputeIsBlockedInTx(ctx, r.runner, affectedIssues, affectedWisps); err != nil {
 				return fmt.Errorf("db: Update %s: recompute is_blocked: %w", id, err)
 			}
+			if !newActive {
+				issueops.NoteStatusChangeBlockedRecheck(r.runner, id, string(newStatus), affectedIssues, affectedWisps)
+			}
 		}
 	}
 	// Snapshot only after all derived blocked-state maintenance has completed.
 	// The no-op early returns above wrote nothing and journal nothing.
-	return issueops.RecordEventInTx(ctx, r.runner, issueops.EventUpdate, id)
+	return issueops.RecordEventInTx(ctx, r.runner, issueops.EventUpdate, id, actor)
 }
 
 // CompareAndSetMetadataKey runs the SHARED compare-and-set body, unwrapped.
@@ -535,7 +538,7 @@ func (r *issueSQLRepositoryImpl) Claim(ctx context.Context, id, actor string, op
 	}
 	// A claim changes assignee and status; the lost-CAS path returns above
 	// without writing and journals nothing.
-	if err := issueops.RecordEventInTx(ctx, r.runner, issueops.EventUpdate, id); err != nil {
+	if err := issueops.RecordEventInTx(ctx, r.runner, issueops.EventUpdate, id, actor); err != nil {
 		return domain.ClaimRowResult{}, err
 	}
 
@@ -933,6 +936,13 @@ func (r *issueSQLRepositoryImpl) SearchAcrossIssuesAndWispsWithCounts(ctx contex
 	return r.searchAcrossIssuesAndWispsWithCounts(ctx, query, filter)
 }
 
+// SearchWispsPlane runs the shared wisps-plane search body on this
+// repository's transaction, so the unit-of-work provider and the two store
+// backends read the plane through one function.
+func (r *issueSQLRepositoryImpl) SearchWispsPlane(ctx context.Context, query string, filter types.IssueFilter) ([]*types.Issue, error) {
+	return issueops.SearchWispsPlaneInTx(ctx, r.runner, query, filter)
+}
+
 func (r *issueSQLRepositoryImpl) SearchIssueIDs(ctx context.Context, query string, filter types.IssueFilter) ([]string, error) {
 	return issueops.SearchIssueIDsInTx(ctx, r.runner, query, filter)
 }
@@ -945,14 +955,14 @@ func (r *issueSQLRepositoryImpl) GetReadyWorkWithCounts(ctx context.Context, fil
 	return r.getReadyWorkWithCountsUnion(ctx, filter)
 }
 
-func (r *issueSQLRepositoryImpl) Delete(ctx context.Context, id string, opts domain.IssueTableOpts) error {
+func (r *issueSQLRepositoryImpl) Delete(ctx context.Context, id string, opts domain.IssueTableOpts, actor string) error {
 	table := "issues"
 	if opts.UseWispsTable {
 		table = "wisps"
 	}
 	// Edges are journaled before the row goes, while its snapshot can still be
 	// read.
-	if err := issueops.RecordDependencyRemovalsForIssuesInTx(ctx, r.runner, []string{id}); err != nil {
+	if err := issueops.RecordDependencyRemovalsForIssuesInTx(ctx, r.runner, []string{id}, actor); err != nil {
 		return fmt.Errorf("db: IssueSQLRepository.Delete %s: journal dependency removals: %w", id, err)
 	}
 	//nolint:gosec // G201: table is a hardcoded constant.
@@ -972,10 +982,10 @@ func (r *issueSQLRepositoryImpl) Delete(ctx context.Context, id string, opts dom
 		return err
 	}
 	// The rows==0 return above keeps this actually-deleted-only.
-	return issueops.RecordDeleteInTx(ctx, r.runner, id)
+	return issueops.RecordDeleteInTx(ctx, r.runner, id, actor)
 }
 
-func (r *issueSQLRepositoryImpl) DeleteByIDs(ctx context.Context, ids []string, opts domain.IssueTableOpts) (int, error) {
+func (r *issueSQLRepositoryImpl) DeleteByIDs(ctx context.Context, ids []string, opts domain.IssueTableOpts, actor string) (int, error) {
 	if len(ids) == 0 {
 		return 0, nil
 	}
@@ -993,7 +1003,7 @@ func (r *issueSQLRepositoryImpl) DeleteByIDs(ctx context.Context, ids []string, 
 	}
 	// Edges are journaled before the rows go, while their source snapshots can
 	// still be read.
-	if err := issueops.RecordDependencyRemovalsForIssuesInTx(ctx, r.runner, actualIDs); err != nil {
+	if err := issueops.RecordDependencyRemovalsForIssuesInTx(ctx, r.runner, actualIDs, actor); err != nil {
 		return 0, fmt.Errorf("db: IssueSQLRepository.DeleteByIDs journal dependency removals: %w", err)
 	}
 	total := 0
@@ -1032,7 +1042,7 @@ func (r *issueSQLRepositoryImpl) DeleteByIDs(ctx context.Context, ids []string, 
 		}
 	}
 	for _, id := range actualIDs {
-		if err := issueops.RecordDeleteInTx(ctx, r.runner, id); err != nil {
+		if err := issueops.RecordDeleteInTx(ctx, r.runner, id, actor); err != nil {
 			return total, err
 		}
 	}
@@ -1063,8 +1073,12 @@ func (r *issueSQLRepositoryImpl) AffectedByDeletion(ctx context.Context, issueID
 	return issueops.AffectedByDeletionInTx(ctx, r.runner, issueIDs, wispIDs)
 }
 
-func (r *issueSQLRepositoryImpl) RecomputeIsBlocked(ctx context.Context, issueIDs, wispIDs []string) error {
-	return issueops.RecomputeIsBlockedInTx(ctx, r.runner, issueIDs, wispIDs)
+func (r *issueSQLRepositoryImpl) RecomputeIsBlockedAfterDelete(ctx context.Context, deletedIDs, issueIDs, wispIDs []string) error {
+	if err := issueops.RecomputeIsBlockedInTx(ctx, r.runner, issueIDs, wispIDs); err != nil {
+		return err
+	}
+	issueops.NoteDeleteBlockedRecheck(r.runner, deletedIDs, "", issueIDs, wispIDs)
+	return nil
 }
 
 func (r *issueSQLRepositoryImpl) AsOf(ctx context.Context, id, ref string) (*types.Issue, error) {

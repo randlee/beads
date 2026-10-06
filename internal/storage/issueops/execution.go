@@ -33,6 +33,21 @@ func HistoryEntry(provenance, fallback string) string {
 	return fallback
 }
 
+// workspacePrefixOverride reports the workspace config.yaml issue-prefix
+// that a local front door resolved into CreateRequest.IDPrefix. When non-empty,
+// it means "the workspace knows its own prefix and it wins over the shared
+// DB's issue_prefix scalar." The front door leaves IDPrefix empty under
+// --global and for remote clients, so a non-empty value here is always the
+// local workspace's authority. Trailing hyphens are stripped because the
+// prefix is normalized without them everywhere it is read (ReadConfigPrefix,
+// GenerateHashID, etc.).
+func workspacePrefixOverride(requestIDPrefix string) string {
+	if requestIDPrefix == "" {
+		return ""
+	}
+	return strings.TrimSuffix(requestIDPrefix, "-")
+}
+
 // ExecuteCreate applies a guarded create in tx and reports durable tables changed.
 func ExecuteCreate(ctx context.Context, tx *sql.Tx, request publicops.CreateRequest) (publicops.CreateResult, ChangedTables, error) {
 	attempt := CloneCreateRequest(request)
@@ -59,6 +74,13 @@ func ExecuteCreate(ctx context.Context, tx *sql.Tx, request publicops.CreateRequ
 	if !issue.Ephemeral && !issue.NoHistory && ResolveInfraTypesInTx(ctx, tx)[string(issue.IssueType)] {
 		issue.Ephemeral = true
 	}
+	// A wisp_type IS a claim of ephemerality: a typed wisp minted without the
+	// flag lands in the issues plane where no TTL, GC, or purge tier owns it
+	// (858 such rows / 7.3 MB survived every sweep in one production DB before
+	// this line). NoHistory keeps its own retention mode, same as above.
+	if !issue.Ephemeral && !issue.NoHistory && issue.WispType != "" {
+		issue.Ephemeral = true
+	}
 	if attempt.InheritLabelsFromParent && attempt.ParentID != "" {
 		labels, err := GetLabelsInTx(ctx, tx, "", attempt.ParentID)
 		if err != nil {
@@ -74,6 +96,22 @@ func ExecuteCreate(ctx context.Context, tx *sql.Tx, request publicops.CreateRequ
 			return publicops.CreateResult{}, nil, ClassifyPublicCreateError(err)
 		}
 		childCounterChanged = !parentIsWisp
+	}
+	// A workspace create must prefer its own config.yaml issue-prefix over the
+	// shared DB's issue_prefix scalar. The local front door (bd create)
+	// resolves that workspace prefix into CreateRequest.IDPrefix — empty under
+	// --global and for remote clients — so honoring it here as PrefixOverride
+	// makes `bd create` mint ap-* in an ap-* workspace even when the shared DB
+	// scalar still reads skillrx, and lets assignCreateIssueIDInTx validate an
+	// explicit --id or a --parent child ID against ap- rather than skillrx.
+	// PrefixOverride is json:"-" (never persisted); the auto-mint path reads it
+	// to choose the mint prefix, and the validation path reads it to choose the
+	// prefix to validate against. Wisps (ephemeral / no-history) are deliberately
+	// excluded: their mint prefix appends "-wisp" to the DB scalar, and letting
+	// the workspace override win there would silently drop that suffix and change
+	// wisp ID naming, which this fix is not about.
+	if override := workspacePrefixOverride(attempt.IDPrefix); override != "" && !IsWisp(issue) {
+		issue.PrefixOverride = override
 	}
 	if err := assignCreateIssueIDInTx(ctx, tx, batch, issue, attempt.Actor); err != nil {
 		return publicops.CreateResult{}, nil, ClassifyPublicCreateError(err)
@@ -101,6 +139,7 @@ func ExecuteCreate(ctx context.Context, tx *sql.Tx, request publicops.CreateRequ
 	if err != nil {
 		return publicops.CreateResult{}, nil, err
 	}
+	OverlayCreateTimestamps(hydrated, issue)
 	return publicops.CreateResult{Issue: hydrated}, tables, nil
 }
 
@@ -240,7 +279,7 @@ func ExecuteUpdate(ctx context.Context, tx *sql.Tx, request publicops.UpdateRequ
 		if err != nil {
 			return publicops.UpdateResult{}, nil, err
 		}
-		moved, err := MoveIssuePersistenceInTx(ctx, tx, current, attempt.Patch.Persistence.Value)
+		moved, err := MoveIssuePersistenceInTx(ctx, tx, current, attempt.Patch.Persistence.Value, attempt.Actor)
 		if err != nil {
 			return publicops.UpdateResult{}, nil, err
 		}

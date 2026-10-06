@@ -474,7 +474,7 @@ func adoptGitOriginRemoteForPush(ctx context.Context, st storage.DoltStorage, po
 		return false, fmt.Errorf("no active beads workspace")
 	}
 
-	if err := st.AddRemote(ctx, "origin", remoteURL); err != nil {
+	if err := st.AddRemote(ctx, "origin", remoteURL, ""); err != nil {
 		return false, err
 	}
 
@@ -728,26 +728,47 @@ For more options (--stdin, custom messages), see: bd vc commit`,
 	SilenceErrors: true,
 	RunE: func(cmd *cobra.Command, args []string) error {
 		ctx := context.Background()
-		st := getStore()
-		if st == nil {
-			return HandleError("no store available")
-		}
 		msg, _ := cmd.Flags().GetString("message")
 		if msg == "" {
 			msg = fmt.Sprintf("bd: dolt commit (auto-commit) by %s", getActor())
 		}
-		// CommitAll, not Commit: this command's contract is "any uncommitted
-		// changes in the working set", including changes made externally and
-		// the config table — which server-mode Commit excludes (GH#2455), so
-		// out-of-band config dirt used to survive this command forever. Its
-		// committed bool also replaces the HEAD-before/HEAD-after comparison
-		// this command used to detect tolerated no-ops with, which cost two
-		// extra HEAD reads and raced against concurrent writers.
-		committed, err := st.CommitAll(ctx, msg)
+
+		var (
+			committed bool
+			err       error
+		)
+		if usesProxiedServer() {
+			// Proxied mode never opens a store — the root pre-run returns
+			// before newDoltStore — so getStore() is nil here and the UOW
+			// provider is the only handle on the server. This is the flush
+			// point dolt.auto-commit=batch/off defers to on that route
+			// (GH#4995). The message is built above so both routes name the
+			// same default.
+			committed, err = runDoltCommitProxiedServer(ctx, msg)
+		} else {
+			st := getStore()
+			if st == nil {
+				return HandleError("no store available")
+			}
+			// CommitAll, not Commit: this command's contract is "any uncommitted
+			// changes in the working set", including changes made externally and
+			// the config table — which server-mode Commit excludes (GH#2455), so
+			// out-of-band config dirt used to survive this command forever. Its
+			// committed bool also replaces the HEAD-before/HEAD-after comparison
+			// this command used to detect tolerated no-ops with, which cost two
+			// extra HEAD reads and raced against concurrent writers.
+			committed, err = st.CommitAll(ctx, msg)
+		}
 		if err != nil {
-			if isDoltNothingToCommit(err) {
+			switch {
+			case isDoltNothingToCommit(err):
 				committed = false
-			} else {
+			case isReportedExit(err):
+				// The proxied route reports provider failures itself, through
+				// HandleErrorRespectJSON, so the JSON envelope is already on
+				// stdout; re-wrapping would print a second, plain Error line.
+				return err
+			default:
 				return HandleError("%v", err)
 			}
 		}
@@ -773,7 +794,12 @@ The server runs in the background on a per-project port derived from the
 project path. PID and logs are stored in .beads/.
 
 The server auto-starts transparently when needed, so manual start is rarely
-required. Use this command for explicit control or diagnostics.`,
+required. Use this command for explicit control or diagnostics.
+
+Not available in proxied-server mode: there the proxy owns its dolt backend's
+lifecycle and starts it on demand, so a server started here would be a second,
+unsupervised one over the same data directory. Use 'bd dolt status' to see what
+is running and 'bd dolt stop' to shut it down.`,
 	RunE: func(cmd *cobra.Command, args []string) error {
 		beadsDir := selectedDoltBeadsDir()
 		if beadsDir == "" {
@@ -783,6 +809,26 @@ required. Use this command for explicit control or diagnostics.`,
 		if err != nil {
 			return HandleError("%v", err)
 		}
+		// A proxied workspace already has a server manager. The proxy spawns
+		// its dolt child on demand and reaps the whole tree when idle, so
+		// there is no state for bd to add here — only a second one to
+		// collide with. With the tree down, doltserver.Start resolves the
+		// proxied root's own configured port and launches an unsupervised
+		// sql-server directly over .beads/dolt, and the next ordinary bd
+		// command then fails because the relaunched proxy finds a foreign
+		// server on its port; with the tree up, Start instead adopts the
+		// proxy's child into bd's classic PID/port records, leaving two
+		// managers for one process. Refused rather than routed: the proxy
+		// owns its child's lifecycle, and an idle reaper means a "started"
+		// postcondition bd cannot honor for more than the idle window.
+		//
+		// Both the process-wide mode and the selected workspace's own
+		// metadata are consulted, and this runs before the embedded guard:
+		// over-refusing costs an operator one error message, under-refusing
+		// costs them the datastore.
+		if usesProxiedServer() || fileCfg.IsDoltProxiedServerMode() {
+			return HandleProxyCapabilityError(proxiedDoltStartRefusal())
+		}
 		if !usesSQLServer() {
 			return HandleError("'bd dolt start' is not supported in embedded mode (no Dolt server)")
 		}
@@ -790,7 +836,7 @@ required. Use this command for explicit control or diagnostics.`,
 		// server lifecycle (GH#3545/GH#3518): starting a repo-local
 		// server here would write local PID/port state that shadows the
 		// configured remote endpoint.
-		if host := fileCfg.GetDoltServerHost(); !usesProxiedServer() && !configfile.IsLocalHostString(host) {
+		if host := fileCfg.GetDoltServerHost(); !configfile.IsLocalHostString(host) {
 			return HandleError("the configured Dolt server host is remote (%s); 'bd dolt start' only manages a local server.\nStart the server on that host, or clear dolt_server_host / dolt.host / BEADS_DOLT_SERVER_HOST to run one locally", host)
 		}
 		serverDir := doltserver.ResolveServerDir(beadsDir)
@@ -1067,7 +1113,12 @@ PID, port, and data directory from the local PID file. For externally-
 managed servers — a shared server (dolt.shared-server: true), a remote
 dolt_server_host, or a local server managed outside bd (dolt.auto-start:
 false, e.g. an orchestrator-shared sql-server) — pings the configured
-endpoint via SQL and reports reachability, server version, and database.`,
+endpoint via SQL and reports reachability, server version, and database.
+
+In proxied-server mode, reports the proxy (the endpoint every bd command
+connects through) and the dolt backend behind it separately, read from the
+proxy's own process records. Reporting starts nothing: a quiesced workspace
+is shown as not running, and the next bd command launches it.`,
 	RunE: func(cmd *cobra.Command, args []string) error {
 		beadsDir := selectedDoltBeadsDir()
 		if beadsDir == "" {
@@ -1080,7 +1131,7 @@ endpoint via SQL and reports reachability, server version, and database.`,
 		if cfg == nil {
 			cfg = configfile.DefaultConfig()
 		}
-		if err := validateConfiguredBackend(cfg); err != nil {
+		if err := validateConfiguredBackend(cfg, beadsDir); err != nil {
 			return HandleError("%v", err)
 		}
 		// A non-Dolt backend (SQLite or a removed-backend tombstone) has no Dolt engine;
@@ -1088,6 +1139,21 @@ endpoint via SQL and reports reachability, server version, and database.`,
 		// (parity with `bd dolt show`, which already special-cases this).
 		if cfg.GetBackend() != configfile.BackendDolt {
 			fmt.Printf("Backend: %s (no Dolt engine)\n", cfg.GetBackend())
+			return nil
+		}
+		// Neither branch below describes a proxied workspace. It writes no
+		// classic PID file, so the bd-managed path reports "not running"
+		// while the proxy is serving CRUD, and shouldUseExternalDoltStatus
+		// deliberately excludes proxied so the SQL-probe path never sees it
+		// either. Keyed on the loaded config rather than the process-wide
+		// mode so `bd --db <proxied workspace> dolt status` describes the
+		// workspace it was pointed at.
+		if cfg.IsDoltProxiedServerMode() {
+			status, err := collectProxiedDoltStatus(beadsDir)
+			if err != nil {
+				return HandleError("%v", err)
+			}
+			renderProxiedDoltStatus(status)
 			return nil
 		}
 		if !usesSQLServer() {
@@ -1507,7 +1573,7 @@ func purgeDroppedDatabases(ctx context.Context, conn versioncontrolops.DBConn) e
 
 type doltRemoteAddStore interface {
 	ListRemotes(ctx context.Context) ([]storage.RemoteInfo, error)
-	AddRemote(ctx context.Context, name, url string) error
+	AddRemote(ctx context.Context, name, url, gitRef string) error
 	RemoveRemote(ctx context.Context, name string) error
 }
 
@@ -1542,7 +1608,7 @@ func findDoltRemoteURL(remotes []storage.RemoteInfo, name string) string {
 	return ""
 }
 
-func ensureDoltRemote(ctx context.Context, st doltRemoteAddStore, name, url string, confirm doltRemoteOverwriteConfirmer) (doltRemoteAddResult, error) {
+func ensureDoltRemote(ctx context.Context, st doltRemoteAddStore, name, url, gitRef string, confirm doltRemoteOverwriteConfirmer) (doltRemoteAddResult, error) {
 	remotes, err := st.ListRemotes(ctx)
 	if err != nil {
 		return doltRemoteAddResult{}, fmt.Errorf("list existing remotes: %w", err)
@@ -1561,7 +1627,7 @@ func ensureDoltRemote(ctx context.Context, st doltRemoteAddStore, name, url stri
 		existingFromDiskOnly = existingURL != ""
 	}
 	if existingURL == "" {
-		if err := st.AddRemote(ctx, name, url); err != nil {
+		if err := st.AddRemote(ctx, name, url, gitRef); err != nil {
 			return doltRemoteAddResult{}, fmt.Errorf("add remote %s: %w", name, err)
 		}
 		return doltRemoteAddResult{}, nil
@@ -1582,7 +1648,7 @@ func ensureDoltRemote(ctx context.Context, st doltRemoteAddStore, name, url stri
 			return doltRemoteAddResult{}, fmt.Errorf("remove existing remote %s: %w", name, err)
 		}
 	}
-	if err := st.AddRemote(ctx, name, url); err != nil {
+	if err := st.AddRemote(ctx, name, url, gitRef); err != nil {
 		return doltRemoteAddResult{}, fmt.Errorf("add remote %s: %w", name, err)
 	}
 	return doltRemoteAddResult{}, nil
@@ -1613,6 +1679,7 @@ var doltRemoteAddCmd = &cobra.Command{
 			return SilentExit()
 		}
 		allowGitOrigin, _ := cmd.Flags().GetBool("allow-git-origin")
+		gitRef, _ := cmd.Flags().GetString("ref")
 		if doltRemoteMatchesGitOrigin(args[1]) {
 			if !allowGitOrigin {
 				fmt.Fprintf(os.Stderr, "Error: refusing to add %q as a Dolt remote — this URL matches the git origin.\n", args[1])
@@ -1629,7 +1696,7 @@ var doltRemoteAddCmd = &cobra.Command{
 		}
 		name, url := args[0], args[1]
 
-		result, err := ensureDoltRemote(ctx, st, name, url, confirmDoltRemoteOverwrite)
+		result, err := ensureDoltRemote(ctx, st, name, url, gitRef, confirmDoltRemoteOverwrite)
 		if err != nil {
 			if jsonOutput {
 				_ = outputJSONError(err, "remote_add_failed")
@@ -1811,6 +1878,7 @@ func init() {
 	doltCleanDatabasesCmd.Flags().Bool("dry-run", false, "Show what would be dropped without dropping")
 	doltCleanDatabasesCmd.Flags().Bool("purge-dropped", false, "After dropping, also run CALL DOLT_PURGE_DROPPED_DATABASES() — server-global and irreversible, see --help")
 	doltRemoteAddCmd.Flags().Bool("allow-git-origin", false, "Allow adding a Dolt remote whose URL matches the git origin (proceed with a warning instead of aborting)")
+	doltRemoteAddCmd.Flags().String("ref", "", "Git ref for multi-database repos (e.g. refs/dolt/skillrx). Passes through to 'dolt remote add --ref'")
 	doltRemoteResetDataCmd.Flags().BoolVarP(&doltRemoteResetDataYes, "yes", "y", false, "Skip the confirmation prompt (required in non-interactive use)")
 	doltRemoteCmd.AddCommand(doltRemoteAddCmd)
 	doltRemoteCmd.AddCommand(doltRemoteListCmd)
@@ -1920,7 +1988,7 @@ func showDoltConfig(testConnection bool) error {
 	if cfg == nil {
 		cfg = configfile.DefaultConfig()
 	}
-	if err := validateConfiguredBackend(cfg); err != nil {
+	if err := validateConfiguredBackend(cfg, beadsDir); err != nil {
 		return HandleError("%v", err)
 	}
 

@@ -265,8 +265,12 @@ func TestMacOSTestJobsReuseWorkspaceBDBinary(t *testing.T) {
 	const (
 		workspaceBDBinary = "${{ github.workspace }}/bd"
 		buildCommand      = "go build -v -tags gms_pure_go ./cmd/bd"
-		prTestCommand     = "go test -tags gms_pure_go -v -race -short -skip '^TestEmbedded' ./..."
-		mainTestCommand   = "go test -tags gms_pure_go ${{ matrix.test-flags }} -skip '^TestEmbedded' ./..."
+		// -timeout=30m is pinned on both lanes because ./cmd/bd has outgrown
+		// `go test`'s 10m per-package default (#6091). In main.yml it sits on
+		// the invocation rather than in matrix.test-flags, so editing the
+		// matrix cannot silently drop it.
+		prTestCommand   = "go test -tags gms_pure_go -v -race -short -timeout=30m -skip '^TestEmbedded' ./..."
+		mainTestCommand = "go test -tags gms_pure_go ${{ matrix.test-flags }} -timeout=30m -skip '^TestEmbedded' ./..."
 	)
 
 	workflows := map[string]ciWorkflow{
@@ -1287,6 +1291,32 @@ func TestPinnedDoltCLIMatchesContainerImage(t *testing.T) {
 	if cliVersion != imageVersion || cliVersion != pullVersion {
 		t.Errorf("dolt pins disagree: CLI %s, DoltDockerImage %s, pull-dolt-image.sh %s",
 			cliVersion, imageVersion, pullVersion)
+	}
+}
+
+// TestProxiedLocalSmokeMatchesPinnedDoltVersion keeps the proxied-local-smoke
+// lane's standalone Dolt CLI install on the same release as the rest of the
+// suite. That lane downloads its own dolt binary straight from GitHub
+// releases instead of going through scripts/ci/install-dolt.sh, so nothing
+// else catches it drifting off the measured pin (see "Which Dolt version to
+// install" in docs/architecture/dolt.md for why the pin is not just "latest").
+func TestProxiedLocalSmokeMatchesPinnedDoltVersion(t *testing.T) {
+	root := sourceRepoRoot(t)
+
+	installer, err := os.ReadFile(filepath.Join(root, "scripts", "ci", "install-dolt.sh"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	cliVersion := captureOne(t, `(?m)^readonly version="([0-9]+\.[0-9]+\.[0-9]+)"$`, string(installer), "scripts/ci/install-dolt.sh")
+
+	workflow, err := os.ReadFile(filepath.Join(root, ".github", "workflows", "proxied-local-smoke.yml"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	smokeVersion := captureOne(t, `(?m)^\s*DOLT_VERSION:\s*([0-9]+\.[0-9]+\.[0-9]+)\s*$`, string(workflow), "proxied-local-smoke.yml:DOLT_VERSION")
+
+	if cliVersion != smokeVersion {
+		t.Errorf("dolt pins disagree: CLI %s, proxied-local-smoke.yml DOLT_VERSION %s", cliVersion, smokeVersion)
 	}
 }
 
