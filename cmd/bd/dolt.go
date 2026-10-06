@@ -1878,7 +1878,7 @@ func init() {
 	doltCleanDatabasesCmd.Flags().Bool("dry-run", false, "Show what would be dropped without dropping")
 	doltCleanDatabasesCmd.Flags().Bool("purge-dropped", false, "After dropping, also run CALL DOLT_PURGE_DROPPED_DATABASES() — server-global and irreversible, see --help")
 	doltRemoteAddCmd.Flags().Bool("allow-git-origin", false, "Allow adding a Dolt remote whose URL matches the git origin (proceed with a warning instead of aborting)")
-doltRemoteAddCmd.Flags().String("ref", "", "Git ref for multi-database repos (e.g. refs/dolt/skillrx). Passes through to 'dolt remote add --ref'")
+	doltRemoteAddCmd.Flags().String("ref", "", "Git ref for multi-database repos (e.g. refs/dolt/skillrx). Passes through to 'dolt remote add --ref'")
 	doltRemoteResetDataCmd.Flags().BoolVarP(&doltRemoteResetDataYes, "yes", "y", false, "Skip the confirmation prompt (required in non-interactive use)")
 	doltRemoteCmd.AddCommand(doltRemoteAddCmd)
 	doltRemoteCmd.AddCommand(doltRemoteListCmd)
