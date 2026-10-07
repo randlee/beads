@@ -891,6 +891,18 @@ func installHooksWithOptions(hookNames []string, force bool, shared bool, chain 
 		}
 	}
 
+	// Worktree redirect (randlee/beads#10): installing from a linked worktree
+	// must write hook files to the WORKTREE's own tracked copy, not the main
+	// checkout. GetGitHooksDir honors an absolute core.hooksPath (GH#2414
+	// deliberately set it absolute, pointing into the main repo, so RUNTIME
+	// hook execution works from any worktree) — but that makes the install
+	// target the main working tree, silently editing committed files outside
+	// the PR branch and breaking the worktree+PR upgrade flow. Runtime config
+	// stays untouched; the worktree copy reaches main when the PR merges.
+	if git.IsWorktree() {
+		hooksDir = redirectHooksDirToWorktree(hooksDir)
+	}
+
 	// Create hooks directory if it doesn't exist.
 	// Directories inside .beads/ use BeadsDirPerm (0700); git-managed hook
 	// dirs (.git/hooks, .beads-hooks) use 0755 so git can execute them.
@@ -1274,6 +1286,48 @@ func isHuskyHelperSourceLine(line string) bool {
 		return true
 	}
 	return false
+}
+
+// redirectHooksDirToWorktree maps an install target that resolves under the
+// MAIN repo root to the equivalent path under the current worktree root, so
+// `bd hooks install` run from a worktree writes the worktree's own tracked
+// copy instead of editing files committed on another branch (randlee/beads#10).
+//
+// Only beads-owned tracked locations (.beads/hooks, .beads-hooks) are
+// redirected. A genuinely shared location — the common .git/hooks that git
+// itself shares across worktrees, or anything outside the main root — is
+// returned unchanged; redirecting those would break hook execution.
+func redirectHooksDirToWorktree(hooksDir string) string {
+	mainRoot, err := git.GetMainRepoRoot()
+	if err != nil || mainRoot == "" {
+		return hooksDir
+	}
+	wtRoot := git.GetRepoRoot()
+	if wtRoot == "" {
+		return hooksDir
+	}
+	return redirectHooksDirToWorktreeWith(hooksDir, mainRoot, wtRoot)
+}
+
+// redirectHooksDirToWorktreeWith is the pure form (roots passed in) so the
+// mapping is unit-testable without a live git worktree.
+func redirectHooksDirToWorktreeWith(hooksDir, mainRoot, wtRoot string) string {
+	if hooksDir == "" || mainRoot == "" || wtRoot == "" {
+		return hooksDir
+	}
+	// Already worktree-local (or unrelated) — nothing to redirect.
+	if mainRoot == wtRoot {
+		return hooksDir
+	}
+	// Only redirect the tracked beads hook dirs. Everything else (notably the
+	// shared common .git/hooks) stays put.
+	for _, rel := range []string{filepath.Join(".beads", "hooks"), ".beads-hooks"} {
+		mainTarget := filepath.Join(mainRoot, rel)
+		if hooksDir == mainTarget {
+			return filepath.Join(wtRoot, rel)
+		}
+	}
+	return hooksDir
 }
 
 func configureSharedHooksPath() error {
