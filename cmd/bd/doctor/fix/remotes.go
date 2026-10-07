@@ -13,14 +13,24 @@ import (
 	"github.com/steveyegge/beads/internal/storage/issueops"
 )
 
-func openFixDB(beadsDir string, cfg *configfile.Config) (*sql.DB, error) {
+// fixDBDSN builds the MySQL-protocol DSN for a destructive-fix connection.
+// Split out of openFixDB so the port/password pairing is unit-testable
+// without a live server (randlee/beads#11).
+func fixDBDSN(beadsDir string, cfg *configfile.Config) string {
 	host := cfg.GetDoltServerHost()
 	user := cfg.GetDoltServerUser()
 	database := cfg.GetDoltDatabase()
-	password := cfg.GetDoltServerPassword()
 	port := doltserver.DefaultConfig(beadsDir).Port
 
-	connStr := doltutil.ServerDSN{
+	// Resolve the password against the SAME runtime port the DSN dials —
+	// the credentials file is keyed [host:port], and cfg.GetDoltServerPassword()
+	// would look up the config port (metadata.json/env/default 3307) instead,
+	// missing the section and returning an empty password → "Access denied"
+	// while CRUD and read-only doctor checks (which use
+	// GetDoltServerPasswordForPort, bd-h5k7) connect fine (randlee/beads#11).
+	password := cfg.GetDoltServerPasswordForPort(port)
+
+	return doltutil.ServerDSN{
 		Host:     host,
 		Port:     port,
 		User:     user,
@@ -28,7 +38,10 @@ func openFixDB(beadsDir string, cfg *configfile.Config) (*sql.DB, error) {
 		Database: database,
 		TLS:      cfg.GetDoltServerTLS(),
 	}.String()
-	return sql.Open("mysql", connStr)
+}
+
+func openFixDB(beadsDir string, cfg *configfile.Config) (*sql.DB, error) {
+	return sql.Open("mysql", fixDBDSN(beadsDir, cfg))
 }
 
 // errUnverifiableFixTarget marks a verifyFixTargetIdentity failure that is
