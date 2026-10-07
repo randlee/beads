@@ -591,8 +591,13 @@ func checkPhantomDatabases(conn *doltConn) DoctorCheck {
 		if err := rows.Scan(&dbName); err != nil {
 			continue
 		}
-		// Skip system databases and the configured database
-		if dbName == "information_schema" || dbName == "mysql" || dbName == configuredDB {
+		// Skip system databases, the configured database, and the
+		// project-agnostic global DB that bd auto-provisions on shared-server
+		// init. beads_global matches the beads_ prefix below but is legitimate
+		// and HAS a directory (unlike GH#2051's stale-catalog phantoms), so it
+		// must not be flagged (randlee/beads#12).
+		if dbName == "information_schema" || dbName == "mysql" ||
+			dbName == configuredDB || dbName == doltserver.GlobalDatabaseName {
 			continue
 		}
 		// Flag entries matching beads naming convention patterns
