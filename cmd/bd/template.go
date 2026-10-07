@@ -29,8 +29,11 @@ type configReader interface {
 // BeadsTemplateLabel is the label used to identify Beads-based templates
 const BeadsTemplateLabel = "template"
 
-// variablePattern matches {{variable}} placeholders
-var variablePattern = regexp.MustCompile(`\{\{([a-zA-Z_][a-zA-Z0-9_]*)\}\}`)
+// variablePattern matches {{variable}} placeholders. Optional inner
+// whitespace ({{ var }}) is accepted and stripped — the documented contract
+// is '{{key}} substituted during spawning' and hand-written formulas
+// commonly pad the braces (randlee/beads#20).
+var variablePattern = regexp.MustCompile(`\{\{\s*([a-zA-Z_][a-zA-Z0-9_]*)\s*\}\}`)
 
 // TemplateSubgraph holds a template epic and all its descendants
 type TemplateSubgraph struct {
@@ -413,8 +416,14 @@ func applyVariableDefaults(vars map[string]string, subgraph *TemplateSubgraph) m
 // substituteVariables replaces {{variable}} with values
 func substituteVariables(text string, vars map[string]string) string {
 	return variablePattern.ReplaceAllStringFunc(text, func(match string) string {
-		// Extract variable name from {{name}}
-		name := match[2 : len(match)-2]
+		// Use the capture group, not a slice: the pattern allows optional
+		// inner whitespace ({{ name }}), so match[2:len-2] would keep the
+		// padding and miss the vars lookup (randlee/beads#20).
+		sub := variablePattern.FindStringSubmatch(match)
+		if len(sub) < 2 {
+			return match
+		}
+		name := sub[1]
 		if val, ok := vars[name]; ok {
 			return val
 		}
