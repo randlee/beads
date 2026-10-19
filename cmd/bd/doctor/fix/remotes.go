@@ -14,13 +14,29 @@ import (
 )
 
 func openFixDB(beadsDir string, cfg *configfile.Config) (*sql.DB, error) {
+	connStr := fixDBDSN(beadsDir, cfg)
+	return sql.Open("mysql", connStr)
+}
+
+// fixDBDSN builds the server DSN for fix-path connections. The password is
+// resolved against the port we actually dial, not the config-file port:
+// GetDoltServerPassword() delegates to GetDoltServerPort(), which falls back
+// to DefaultDoltServerPort (3307) when metadata.json omits dolt_server_port,
+// while this connection dials the DefaultConfig-resolved port (e.g. 3308).
+// The credentials file is keyed [host:port], so the fallback lookup misses
+// and the connection is built with an empty password — one auth failure per
+// openFixDB call (reached by read-only doctor checks: Clone-Local FKs,
+// Cross-Table Duplicates). Mirrors the resolved-port lookup in
+// resolveDoltServerConnection (cmd/bd/main.go); same fix shape as
+// doctor/federation.go per upstream #5517. See upstream #5573.
+func fixDBDSN(beadsDir string, cfg *configfile.Config) string {
 	host := cfg.GetDoltServerHost()
 	user := cfg.GetDoltServerUser()
 	database := cfg.GetDoltDatabase()
-	password := cfg.GetDoltServerPassword()
 	port := doltserver.DefaultConfig(beadsDir).Port
+	password := cfg.GetDoltServerPasswordForPort(port)
 
-	connStr := doltutil.ServerDSN{
+	return doltutil.ServerDSN{
 		Host:     host,
 		Port:     port,
 		User:     user,
@@ -28,7 +44,6 @@ func openFixDB(beadsDir string, cfg *configfile.Config) (*sql.DB, error) {
 		Database: database,
 		TLS:      cfg.GetDoltServerTLS(),
 	}.String()
-	return sql.Open("mysql", connStr)
 }
 
 // errUnverifiableFixTarget marks a verifyFixTargetIdentity failure that is
