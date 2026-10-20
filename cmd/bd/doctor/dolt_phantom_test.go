@@ -187,6 +187,41 @@ func TestCheckPhantomDatabases_ConfiguredDBNotPhantom(t *testing.T) {
 	}
 }
 
+// TestCheckPhantomDatabases_GlobalDBNotPhantom is the randlee/beads#12
+// regression: the auto-provisioned project-agnostic global DB (beads_global,
+// doltserver.GlobalDatabaseName) matches the beads_ prefix pattern but is a
+// legitimate bd-init-provisioned database with a real directory — it must NOT
+// be flagged as a phantom (GH#2051 phantoms are stale catalog entries WITHOUT
+// a directory).
+func TestCheckPhantomDatabases_GlobalDBNotPhantom(t *testing.T) {
+	db := openSharedDoltForPhantom(t)
+
+	// Create the global DB exactly as shared-server init does, plus a REAL
+	// phantom so we prove the whitelist is specific to beads_global (the
+	// genuine phantom is still caught).
+	//nolint:gosec // G202: test-only database name, not user input
+	if _, err := db.Exec("CREATE DATABASE IF NOT EXISTS beads_global"); err != nil {
+		t.Fatalf("failed to create beads_global: %v", err)
+	}
+	cleanupPhantomDB(t, db, "beads_global")
+	//nolint:gosec // G202: test-only database name, not user input
+	if _, err := db.Exec("CREATE DATABASE IF NOT EXISTS beads_real_phantom"); err != nil {
+		t.Fatalf("failed to create real phantom: %v", err)
+	}
+	cleanupPhantomDB(t, db, "beads_real_phantom")
+
+	conn := &doltConn{db: db, cfg: nil}
+	check := checkPhantomDatabases(conn)
+
+	// The real phantom is flagged; beads_global is not named in the message.
+	if !strings.Contains(check.Message, "beads_real_phantom") {
+		t.Errorf("expected a genuine phantom to still be flagged, got: %s", check.Message)
+	}
+	if strings.Contains(check.Message, "beads_global") {
+		t.Errorf("beads_global must not be flagged as phantom (randlee/beads#12), got: %s", check.Message)
+	}
+}
+
 func TestCheckPhantomDatabases_NilConfig(t *testing.T) {
 	db := openSharedDoltForPhantom(t)
 
