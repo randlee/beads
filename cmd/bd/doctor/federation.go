@@ -48,6 +48,34 @@ func doltServerConfig(beadsDir, doltPath string) *dolt.Config {
 	return cfg
 }
 
+// federationServerProbe reports whether a Dolt SQL server is actually serving
+// this workspace's configured endpoint, resolving host/port the same way
+// doltServerConfig does. Used as the reachability fallback when the PID-file
+// path finds no bd-managed server (randlee/beads#26).
+func federationServerProbe(beadsDir string) bool {
+	host := "127.0.0.1"
+	port := doltserver.DefaultConfig(beadsDir).Port
+	if bcfg, err := configfile.Load(beadsDir); err == nil && bcfg != nil {
+		if h := bcfg.GetDoltServerHost(); h != "" {
+			host = h
+		}
+	}
+	if port <= 0 {
+		return false
+	}
+	return isDoltServerRunning(host, port)
+}
+
+// serverRunningOrProbeable reports whether a server should be treated as up:
+// the PID-file state says running, or (no PID-tracked server) the endpoint
+// answers a probe. Pure — probe injected — so the decision is unit-testable.
+func serverRunningOrProbeable(state *doltserver.State, probe func() bool) bool {
+	if state != nil && state.Running {
+		return true
+	}
+	return probe()
+}
+
 // CheckLegacyCLIRemotes warns when legacy filesystem CLI remotes are not
 // represented in SQL, because bd now treats SQL remotes as the source of truth.
 func CheckLegacyCLIRemotes(path string) DoctorCheck {
@@ -202,7 +230,26 @@ func CheckFederationRemotesAPI(path string) DoctorCheck {
 	// correctly resolves PID file paths (in beadsDir, not doltPath)
 	// and handles orchestrator daemon PID files.
 	serverState, _ := doltserver.IsRunning(beadsDir)
-	serverRunning := serverState != nil && serverState.Running
+	// A launchd/systemd-managed server writes no PID file under this
+	// workspace (same shape as randlee/beads#13): probe the SQL endpoint
+	// before treating the server as down, or the remotes check below skips
+	// with a misleading "N/A (server not running...)" — or worse, a false
+	// "Server not running (N peers configured)" warning when peers exist
+	// (randlee/beads#26).
+	serverRunning := serverRunningOrProbeable(serverState, func() bool {
+		return federationServerProbe(beadsDir)
+	})
+	if serverRunning && (serverState == nil || !serverState.Running) {
+		// Externally managed (probe-confirmed): normalize the state so the
+		// running-path code below can dereference serverState safely
+		// (IsRunning may return nil on a read error); PID stays 0 — there is
+		// no PID file to read, and the remotesapi-failure detail line renders
+		// PID 0 as "externally managed".
+		if serverState == nil {
+			serverState = &doltserver.State{}
+		}
+		serverState.Running = true
+	}
 
 	if !serverRunning {
 		// No server running - check if we have remotes configured
@@ -281,11 +328,15 @@ func CheckFederationRemotesAPI(path string) DoctorCheck {
 	// greeting to drain here.
 	conn, err := net.DialTimeout("tcp", addr, 2*time.Second)
 	if err != nil {
+		serverDesc := fmt.Sprintf("Server running (PID %d)", serverState.PID)
+		if serverState.PID == 0 {
+			serverDesc = "Server running (externally managed, no PID file)"
+		}
 		return DoctorCheck{
 			Name:     "Federation remotesapi",
 			Status:   StatusError,
 			Message:  fmt.Sprintf("remotesapi port %d not accessible", remotesAPIPort),
-			Detail:   fmt.Sprintf("Server running (PID %d) but remotesapi port unreachable: %v", serverState.PID, err),
+			Detail:   fmt.Sprintf("%s but remotesapi port unreachable: %v", serverDesc, err),
 			Fix:      "Check if dolt sql-server is running with --remotesapi-port flag",
 			Category: CategoryFederation,
 		}
